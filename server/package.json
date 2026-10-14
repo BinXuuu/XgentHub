@@ -1,0 +1,26 @@
+{
+  "name": "agenthub-server",
+  "private": true,
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch --no-warnings=ExperimentalWarning src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test --test-isolation=process --test-concurrency=1 \"test/*.test.ts\"",
+    "start": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^10.0.1",
+    "@fastify/static": "^10.1.4",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.1.0",
+    "nanoid": "^5.0.9",
+    "undici": "^7.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}

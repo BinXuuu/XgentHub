@@ -1,0 +1,6 @@
+# 工作区里的文件一直是 LF；固定下来，避免全局 autocrlf 让 Codex / Claude 改过的文件在 git 里来回变换行符。
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
+*.zip binary

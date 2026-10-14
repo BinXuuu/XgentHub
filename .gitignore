@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+web/dist/
+logs/*
+!logs/.gitkeep
+backups/*
+!backups/.gitkeep
+*.log
+.env
+*.tsbuildinfo
+.DS_Store
+
+# 运行时数据：数据库、附件、快照仓库，以及可能含 API Key / MCP 令牌的配置文件，都不进版本库
+server/data/*
+!server/data/.gitkeep
+*.sqlite
+*.sqlite-*
+.codex-runtime/

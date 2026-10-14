@@ -1,0 +1,53 @@
+{
+  "name": "agenthub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "本机多 Agent 运行时控制台（Codex / Claude Code / OpenClaw / Hermes 等）",
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run typecheck -w server && npm run build -w web",
+    "test": "npm run test -w server",
+    "regression": "npm run build && npm test && npm run doctor && npm run desktop:smoke",
+    "start": "npm run start -w server",
+    "desktop:start": "electron desktop/main.cjs",
+    "desktop:smoke": "electron desktop/main.cjs --smoke",
+    "service:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 start -Mode dev -StartOllama",
+    "service:start:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 start -Mode prod -StartOllama",
+    "service:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 stop",
+    "service:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 restart -Mode dev -StartOllama",
+    "service:restart:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 restart -Mode prod -StartOllama",
+    "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 status -Mode dev",
+    "service:status:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agenthub.ps1 status -Mode prod",
+    "doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/doctor.ps1",
+    "shortcuts:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manage-shortcuts.ps1 status",
+    "shortcuts:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manage-shortcuts.ps1 install",
+    "shortcuts:remove": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manage-shortcuts.ps1 remove",
+    "setup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-agenthub.ps1",
+    "config:export": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export-config.ps1",
+    "release:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1",
+    "release:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-check.ps1",
+    "installer:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
+    "installer:nsis": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-nsis-installer.ps1",
+    "installer:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-package.ps1",
+    "installer:nsis:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-nsis-installer.ps1",
+    "installer:doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/installer-entry.ps1 doctor",
+    "installer:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/installer-entry.ps1 status-prod",
+    "installer:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/installer-entry.ps1 restart-prod",
+    "version:backup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-version.ps1",
+    "backups:prune": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prune-backups.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "electron": "^44.4.2"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
