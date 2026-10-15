@@ -4,11 +4,13 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("subtask-planner");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { planSubtasks } = await import("../src/services/subtaskPlannerService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

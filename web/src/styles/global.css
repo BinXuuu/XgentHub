@@ -2590,7 +2590,8 @@ select.field:focus {
 .chat-message.user .chat-message-bubble {
   border-color: rgba(79, 140, 255, 0.35);
   background: var(--accent-dim);
-  color: white;
+  /* 跟主题走：亮色主题下 accent-dim 是浅蓝底，写死白字会看不清 */
+  color: var(--text);
 }
 .chat-simple-detail .chat-message-stream {
   align-items: stretch;

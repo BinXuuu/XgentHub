@@ -61,6 +61,15 @@ function url(label: string, target: string, description?: string): AgentSetupAct
   return { kind: "open_url", label, url: target, description };
 }
 
+/**
+ * Claude Code 的登录命令。用的是 Claude 桌面版自带的 claude.exe 时它不在 PATH 里，终端里敲 claude 找不到，
+ * 所以给带完整路径的 PowerShell 写法。
+ */
+function claudeLoginCommand(): string {
+  const bin = config.claudeCode.bin;
+  return /[\\/]/.test(bin) ? `& "${bin}" auth login` : `${bin} auth login`;
+}
+
 function step(title: string, status: AgentDiagnosticStatus, description: string, actions: AgentSetupAction[] = []): AgentSetupStep {
   return { title, status, description, actions };
 }
@@ -140,12 +149,20 @@ function buildSetupStepsRaw(agentId: string, checks: AgentDiagnosticCheck[], mod
         step(
           "安装 Claude Code CLI",
           statusOf(checks, "Claude Code CLI"),
-          "需要本机的 claude 命令。装了 Claude 桌面版的话会自动找到它自带的那一份，不用另装；没装的话用下面的命令安装（在 PowerShell 里运行），装完运行一次 claude 登录。",
+          "需要本机的 claude 命令。装了 Claude 桌面版的话会自动找到它自带的那一份，不用另装；没装的话用下面的命令安装（在 PowerShell 里运行）。",
           [
             command("复制安装命令", "irm https://claude.ai/install.ps1 | iex", "Claude Code 官方安装脚本（PowerShell）。也可以用 npm install -g @anthropic-ai/claude-code。"),
             url("打开安装说明", "https://code.claude.com/docs/en/setup"),
-            command("复制登录命令", "claude auth login"),
             field("定位 CLI 路径", "CLAUDE_CODE_BIN"),
+          ]
+        ),
+        step(
+          "登录 Claude Code",
+          statusOf(checks, "登录状态"),
+          "登录过期后 Claude Code 的任务和聊天都会失败。复制下面的命令到 PowerShell 运行，会打开浏览器让你登录 Claude 账号，登录完回来点「重新探测」。",
+          [
+            command("复制登录命令", claudeLoginCommand(), "用 Claude 订阅账号登录；用 API 计费的话在命令末尾加 --console。"),
+            command("复制查看登录状态命令", claudeLoginCommand().replace(/auth login$/, "auth status")),
           ]
         ),
         step("确认 headless 参数", statusOf(checks, "Headless 参数"), "stream-json 输出依赖 --print --output-format stream-json --verbose。", [
@@ -512,6 +529,25 @@ async function diagnoseBuiltin(agentId: string, checks: AgentDiagnosticCheck[], 
       }
       if (config.claudeCode.bin !== config.claudeCode.configuredBin) {
         addCheck(checks, "版本", "ok", `配置的是 ${config.claudeCode.configuredBin}，已自动改用最新版本 ${config.claudeCode.bin}`);
+      }
+      // 登录状态要单独查：查用量的 `claude -p /usage` 不登录也能返回本地统计，光看它会把"登录过期"误判成正常。
+      const auth = await runCli(config.claudeCode.bin, ["auth", "status", "--json"], 20_000);
+      let loggedIn: boolean | null = null;
+      let authMethod = "";
+      try {
+        const parsed = JSON.parse(stripAnsi(auth.stdout).trim());
+        loggedIn = Boolean(parsed?.loggedIn);
+        authMethod = String(parsed?.authMethod ?? "");
+      } catch {
+        loggedIn = null;
+      }
+      if (loggedIn) {
+        addCheck(checks, "登录状态", "ok", authMethod ? `已登录（${authMethod}）` : "已登录");
+      } else if (loggedIn === false) {
+        addCheck(checks, "登录状态", "error", "没有登录，或者登录已过期。Claude Code 的任务和聊天现在都会失败。");
+        nextSteps.push(`重新登录 Claude Code：在 PowerShell 运行 ${claudeLoginCommand()}，在打开的浏览器里登录，完成后点「重新探测」。`);
+      } else {
+        addCheck(checks, "登录状态", "warn", stripAnsi(`${auth.stdout}\n${auth.stderr}`).trim().slice(0, 300) || "无法确认 Claude Code 登录状态");
       }
       addCheck(checks, "Headless 参数", "ok", config.claudeCode.args.join(" "));
       break;

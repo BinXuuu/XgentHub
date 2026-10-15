@@ -4,14 +4,16 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("multi-agent-plan");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { planMultiAgentTask } = await import("../src/services/multiAgentPlannerService.ts");
-const { createPlannedSubtasksFromPlan } = await import("../src/services/subtaskPlannerService.ts");
+const { isPlanSummarySubtask, createPlannedSubtasksFromPlan } = await import("../src/services/subtaskPlannerService.ts");
 const { listSubtasks, listTaskRuns } = await import("../src/services/coreModelService.ts");
 const { createResourceLibraryItem, deleteResourceLibraryItem } = await import("../src/services/resourceLibraryService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });
@@ -27,6 +29,9 @@ test("planMultiAgentTask uses the planner agent's ask() and returns an llm-sourc
     assert.equal(subtask.targetAgentId, "mock");
     assert.ok(subtask.prompt.length > 0);
   }
+  // 模型给的依赖：第二条依赖第一条；指向自己（2）和不存在的条目（99）都要丢掉，避免循环 / 悬空依赖。
+  assert.deepEqual(plan.subtasks[0]?.dependsOn, []);
+  assert.deepEqual(plan.subtasks[1]?.dependsOn, [1]);
 });
 
 test("planMultiAgentTask falls back to local heuristic when the planner agent has no usable ask()", async () => {
@@ -74,15 +79,20 @@ test("createPlannedSubtasksFromPlan persists each subtask's own assignedAgentId 
     ],
   });
 
-  assert.equal(created.length, 2);
+  assert.equal(created.length, 3);
   assert.equal(created[0]?.assignedAgentId, "mock");
   assert.equal(created[0]?.plannedPrompt, "执行第一步");
   assert.equal(created[1]?.assignedAgentId, "mock"); // targetAgentId 为 null 时兜底成父任务的 agentId
   assert.equal(created[1]?.plannedPrompt, "执行第二步");
   assert.deepEqual(created[1]?.dependencyIds, [created[0]!.id]);
+  // 最后自动加的"汇总结果"：只依赖没被别人依赖的分支（这里是第二步），交回主任务的 Agent。
+  assert.equal(created[2]?.title, "汇总结果");
+  assert.equal(created[2]?.assignedAgentId, task.agentId);
+  assert.ok(isPlanSummarySubtask(created[2]!));
+  assert.deepEqual(created[2]?.dependencyIds, [created[1]!.id]);
 });
 
-test("a task with autoAdvancePlan=true dispatches planned subtasks one after another without manual dispatch calls", async () => {
+test("a task with autoAdvancePlan=true runs independent subtasks at the same time, then hands their results back for a summary", async () => {
   const workspace = createWorkspace({ name: "Auto Advance Workspace", path: env.root, allowedAgentKinds: ["mock"] });
 
   const task = taskManager.createTask({
@@ -117,42 +127,58 @@ test("a task with autoAdvancePlan=true dispatches planned subtasks one after ano
         .find((message) => message.startsWith("收到任务：")) ?? null,
     { description: "coordinator receives its first turn" }
   );
-  assert.match(brief, /拆成下面 2 个子任务/);
+  assert.match(brief, /拆成下面 2 个子任务，依赖满足的会同时派给各自的 Agent 并行去做/);
+  assert.doesNotMatch(brief, /汇总结果/);
   assert.match(brief, /1\. 子任务 A（Mock Agent）/);
   assert.match(brief, /不要自己动手做这些子任务/);
   assert.match(brief, /用户原始需求：\n请完成这个带两个子任务的计划/);
   assert.equal(taskManager.listMessages(task.id).find((message) => message.role === "user")?.content, "请完成这个带两个子任务的计划");
 
-  // 主任务跑完后应该自动派发子任务 A，不需要调用方手动调一次 dispatch-next。
-  await waitFor(
+  // 主任务第一轮跑完后，A、B 互不依赖，应该同时派出去，而不是 A 跑完才派 B。
+  const planned = () => listSubtasks(task.id).filter((s) => s.parentSubtaskId);
+  const branchIds = () => planned().filter((s) => !isPlanSummarySubtask(s)).map((s) => s.id);
+  const bothRunning = await waitFor(
     () => {
-      const runs = listTaskRuns(task.id);
+      const runs = listTaskRuns(task.id).filter((run) => branchIds().includes(run.subtaskId ?? ""));
       return runs.length >= 2 ? runs : null;
     },
-    { timeoutMs: 10_000, description: "subtask A auto-dispatched after primary run" }
+    { timeoutMs: 10_000, description: "subtasks A and B dispatched" }
   );
+  assert.ok(
+    bothRunning.every((run) => run.status === "running" || run.status === "needs_approval"),
+    "A 和 B 应该同时在跑（派发 B 时 A 还没结束）"
+  );
+  assert.equal(taskManager.getTask(task.id)?.status, "running", "还有子任务在跑时，任务整体保持运行中");
 
-  // 子任务 A 跑完后应该自动派发子任务 B，同样不需要人工介入。
-  await waitFor(
+  // 两个都完成后，自动派发"汇总结果"给主任务的 Agent，带上 A、B 的结果。
+  const summary = await waitFor(
     () => {
-      const runs = listTaskRuns(task.id);
-      return runs.length >= 3 ? runs : null;
+      const item = planned().find((s) => isPlanSummarySubtask(s));
+      return item && (item.status === "done" || item.status === "review") ? item : null;
     },
-    { timeoutMs: 10_000, description: "subtask B auto-dispatched after subtask A" }
+    { timeoutMs: 15_000, description: "summary subtask finishes" }
   );
+  const runs = listTaskRuns(task.id);
+  const branchRuns = runs.filter((run) => branchIds().includes(run.subtaskId ?? ""));
+  const summaryRun = runs.find((run) => run.subtaskId === summary.id)!;
+  assert.ok(branchRuns.every((run) => run.finishedAt && run.finishedAt <= summaryRun.startedAt), "汇总要等所有分支都结束才开始");
+  assert.equal(summaryRun.agentId, task.agentId);
 
-  await waitFor(
-    () => {
-      const subtasks = listSubtasks(task.id).filter((s) => s.parentSubtaskId);
-      return subtasks.every((s) => s.status === "done" || s.status === "review") ? subtasks : null;
-    },
-    { timeoutMs: 10_000, description: "both planned subtasks finish" }
-  );
+  const summaryPrompt = taskManager
+    .listEvents(task.id)
+    .map((event) => String(event.payload?.message ?? ""))
+    .find((message) => message.includes("各子任务最后的回复如下"));
+  assert.ok(summaryPrompt, "汇总这一轮要收到各子任务的结果");
+  assert.match(summaryPrompt!, /### 1\. 子任务 A（Mock Agent）/);
+  assert.match(summaryPrompt!, /### 2\. 子任务 B（Mock Agent）/);
 
-  const planned = listSubtasks(task.id).filter((s) => s.parentSubtaskId);
-  assert.equal(planned.length, 2);
-  assert.equal(planned[0]?.assignedAgentId, "mock");
-  assert.equal(planned[1]?.assignedAgentId, "mock");
+  // 并行时子任务的回复前面标明是哪个子任务，避免交错着看不清。
+  const agentMessages = taskManager.listMessages(task.id).filter((message) => message.role === "agent").map((message) => message.content);
+  assert.ok(agentMessages.some((content) => content.startsWith("【子任务 A · Mock Agent】")));
+  assert.ok(agentMessages.some((content) => content.startsWith("【子任务 B · Mock Agent】")));
+
+  await waitFor(() => (taskManager.getTask(task.id)?.status === "review" ? true : null), { timeoutMs: 10_000, description: "task ends in review" });
+  assert.equal(planned().length, 3);
 });
 
 test("planMultiAgentTask (llm path) actually injects a real resource-library skill's content into the subtask prompt", async () => {

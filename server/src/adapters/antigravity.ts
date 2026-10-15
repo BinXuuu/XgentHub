@@ -7,6 +7,7 @@ import { scanRisk, shouldGate } from "./riskPolicy.ts";
 import { cliAvailable, killProcessTree, resolveCliBinary, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
@@ -429,6 +430,8 @@ function createStreamHandler(ctx: TaskRuntimeContext) {
   let streamedResponse = "";
   let sawResult = false;
   let finalStatus: "review" | "failed" | null = null;
+  // headless 模式没法弹窗问权限：需要权限的工具调用会被自动拒绝。记下来，结果为空时据此判失败而不是当成功。
+  let deniedTool: string | null = null;
 
   function setConversationId(value: unknown) {
     if (typeof value === "string" && value) ctx.setSessionKey(value);
@@ -468,6 +471,7 @@ function createStreamHandler(ctx: TaskRuntimeContext) {
         const params = tool.parameters ? ` ${JSON.stringify(tool.parameters)}` : "";
         const output = typeof tool.output === "string" && tool.output ? `\n${tool.output}` : "";
         const error = tool.error ? `\nERROR: ${typeof tool.error === "string" ? tool.error : JSON.stringify(tool.error)}` : "";
+        if (/permission check failed|denied permission/i.test(error)) deniedTool = name;
         ctx.terminal(`\n$ [antigravity:${name}]${params}${output}${error}\n`);
       }
       if (step.subagent_info) ctx.terminal(`\n[antigravity:subagents] ${JSON.stringify(step.subagent_info)}\n`);
@@ -479,8 +483,17 @@ function createStreamHandler(ctx: TaskRuntimeContext) {
       const result = evt.result ?? {};
       setConversationId(result.conversation_id);
       const status = String(result.status ?? "").toUpperCase();
-      if (status === "SUCCESS") {
-        ctx.agentMessage(String(result.response ?? streamedResponse ?? "(空响应)"));
+      const response = String(result.response || streamedResponse || "").trim();
+      if (status === "SUCCESS" && !response && deniedTool) {
+        // 什么都没做成：不能标成"待复核"，否则并行 / 自动执行会当它完成了继续往下走。
+        ctx.agentMessage(
+          `Antigravity 没有完成这一步：它需要执行「${deniedTool}」这类操作，但无界面模式没法询问权限，被自动拒绝了。\n` +
+            "这个任务改用「完全访问权限」再跑，或者在 Antigravity 的 settings.json 里给这类操作加允许规则（permissions.allow）。"
+        );
+        ctx.setStatus("failed");
+        finalStatus = "failed";
+      } else if (status === "SUCCESS") {
+        ctx.agentMessage(response || "(空响应)");
         if (result.usage) ctx.log(`[antigravity] usage ${JSON.stringify(result.usage)}`);
         ctx.setStatus("review");
         finalStatus = "review";
@@ -587,9 +600,9 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeConvers
     let stderr = "";
     let stoppedReason: string | null = null;
     const cleanupRunningProcess = () => {
-      if (runningAntigravityProcesses.get(ctx.taskId)?.child === child) runningAntigravityProcesses.delete(ctx.taskId);
+      if (runningAntigravityProcesses.get(runtimeKeyOf(ctx))?.child === child) runningAntigravityProcesses.delete(runtimeKeyOf(ctx));
     };
-    runningAntigravityProcesses.set(ctx.taskId, {
+    runningAntigravityProcesses.set(runtimeKeyOf(ctx), {
       child,
       kill: (reason: string) => {
         stoppedReason = reason;
@@ -703,7 +716,7 @@ export class AntigravityAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningAntigravityProcesses.get(ctx.taskId);
+    const running = runningAntigravityProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止 Antigravity 进程树...");
       running.kill("用户停止");

@@ -49,7 +49,10 @@ function buildPlanningPrompt(userPrompt: string, agents: AgentDescriptor[], skil
     userPrompt,
     "",
     "只返回一个 JSON 对象，不要有任何其他文字、不要用 markdown 代码块包裹，格式严格如下：",
-    `{"subtasks":[{"title":"子任务标题","description":"一句话说明","agentId":"上面列表里的某个 id","skillIds":["上面列表里的某个 id"],"prompt":"发给这个 Agent 的完整指令，要能独立执行不依赖额外上下文"}],"reasoning":"你的拆分理由，一两句话"}`,
+    `{"subtasks":[{"title":"子任务标题","description":"一句话说明","agentId":"上面列表里的某个 id","skillIds":["上面列表里的某个 id"],"dependsOn":[1],"prompt":"发给这个 Agent 的完整指令，要能独立执行不依赖额外上下文"}],"reasoning":"你的拆分理由，一两句话"}`,
+    "子任务会并行执行：dependsOn 填这一条必须等哪些子任务先完成（写它们在 subtasks 数组里的序号，从 1 开始，只能引用排在前面的）；互不依赖、可以同时做的就写空数组 []。",
+    "同时执行的子任务在同一个文件夹里工作，尽量让它们改不同的文件；必须改同一个文件的，用 dependsOn 让它们先后执行。",
+    "所有子任务完成后系统会自动把结果交回给总负责人汇总，不需要再单独加一条\"汇总\"子任务。",
     "如果任务很简单不需要拆分，subtasks 就只放一条、覆盖整个任务的即可；但 prompt 字段任何情况下都必须是完整指令，不能只写标题。",
   ].join("\n");
 }
@@ -170,12 +173,25 @@ export async function planMultiAgentTask(input: { prompt: string; workspaceId?: 
   const warnings: string[] = [];
   const subtasks: PlannedSubtask[] = [];
   let index = 0;
+  // 模型写的 dependsOn 是它在数组里的序号；跳过空标题的条目后我们自己的 index 会错位，这里记一下对应关系。
+  const indexByPosition = new Map<number, number>();
 
-  for (const rawItem of parsed.subtasks) {
+  for (const [position, rawItem] of parsed.subtasks.entries()) {
     const item = rawItem as Record<string, unknown>;
     const title = typeof item?.title === "string" ? item.title.trim() : "";
     if (!title) continue;
     index += 1;
+    indexByPosition.set(position + 1, index);
+    // 只接受指向前面条目的依赖，避免模型写出循环依赖让整个计划卡住。
+    const dependsOn = Array.isArray(item?.dependsOn)
+      ? [
+          ...new Set(
+            (item.dependsOn as unknown[])
+              .map((value) => indexByPosition.get(Number(value)))
+              .filter((value): value is number => typeof value === "number" && value < index)
+          ),
+        ]
+      : [];
 
     const description = typeof item?.description === "string" ? item.description.trim() : "";
     let agentId = typeof item?.agentId === "string" ? item.agentId.trim() : "";
@@ -195,7 +211,7 @@ export async function planMultiAgentTask(input: { prompt: string; workspaceId?: 
       index,
       title: title.slice(0, 120),
       description,
-      dependsOn: [],
+      dependsOn,
       targetAgentId: agentId,
       skillIds: validSkillIds,
       prompt: buildSkillAugmentedPrompt(basePrompt, resolvedSkills),

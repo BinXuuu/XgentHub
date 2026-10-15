@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { httpAskError, networkAskError } from "./askErrors.ts";
 
@@ -110,18 +111,18 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
   }
   if (input.images.length) ctx.log(`Ollama adapter 暂不支持图片附件，已忽略 ${input.images.length} 张图片`);
 
-  const history = conversations.get(ctx.taskId) ?? [
+  const history = conversations.get(runtimeKeyOf(ctx)) ?? [
     { role: "system", content: "你是通过 Xgent Hub 调用的本机 Ollama 模型，像结对编程助手一样简洁地回答问题。" },
   ];
   history.push({ role: "user", content: input.text });
 
   const controller = new AbortController();
-  runningOllamaRequests.set(ctx.taskId, controller);
+  runningOllamaRequests.set(runtimeKeyOf(ctx), controller);
   ctx.setStatus("running");
   try {
     const reply = await streamChat(ctx, model, history, controller.signal);
     history.push({ role: "assistant", content: reply });
-    conversations.set(ctx.taskId, history);
+    conversations.set(runtimeKeyOf(ctx), history);
     ctx.agentMessage(reply || "(空响应)");
     ctx.setStatus("review");
   } catch (err) {
@@ -134,7 +135,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
     );
     ctx.setStatus("failed");
   } finally {
-    if (runningOllamaRequests.get(ctx.taskId) === controller) runningOllamaRequests.delete(ctx.taskId);
+    if (runningOllamaRequests.get(runtimeKeyOf(ctx)) === controller) runningOllamaRequests.delete(runtimeKeyOf(ctx));
   }
 }
 
@@ -161,7 +162,7 @@ export class OllamaAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`ollama-${ctx.taskId}`);
+    ctx.setSessionKey(`ollama-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input);
   }
 
@@ -174,7 +175,7 @@ export class OllamaAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const controller = runningOllamaRequests.get(ctx.taskId);
+    const controller = runningOllamaRequests.get(runtimeKeyOf(ctx));
     if (controller) {
       ctx.log("正在终止 Ollama 请求...");
       controller.abort();

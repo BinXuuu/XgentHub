@@ -75,7 +75,7 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
   const [mcpServers, setMcpServers] = useState<McpServerDefinition[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // AI 智能拆分：所选 Agent 当总管家，把需求拆成子任务并给每条分配 Agent，创建后按计划依次派发。
+  // AI 智能拆分：所选 Agent 当总管家，把需求拆成子任务并给每条分配 Agent，创建后依赖满足的同时派发，最后交回总管家汇总。
   const [smartSplit, setSmartSplit] = useState(false);
   const [splitPrompt, setSplitPrompt] = useState("");
   const [multiAgentPlan, setMultiAgentPlan] = useState<MultiAgentPlan | null>(null);
@@ -527,7 +527,7 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
         <label className="plan-mode-check">
           <input type="checkbox" checked={smartSplit} onChange={(e) => setSmartSplit(e.target.checked)} />
           <span>
-            <strong>AI 智能拆分并分配 Agent</strong>：上面选的 Agent 当总管家，把要做的事拆成几个子任务、分给最合适的 Agent，创建后按顺序派发
+            <strong>AI 智能拆分并分配 Agent</strong>：上面选的 Agent 当总管家，把要做的事拆成几个子任务、分给最合适的 Agent；互不依赖的子任务同时跑，全部完成后交回总管家汇总
           </span>
         </label>
 
@@ -629,7 +629,7 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
                 </div>
                 <label className="subtask-auto-toggle">
                   <input type="checkbox" checked={autoAdvancePlan} onChange={(e) => setAutoAdvancePlan(e.target.checked)} />
-                  <span>创建后自动依次执行每个子任务（不勾的话，每个子任务要在任务里手动点「执行下个子任务」）</span>
+                  <span>创建后自动执行：依赖满足的子任务同时开跑，全部完成后自动汇总（不勾的话，每个子任务要在任务里手动点「执行下个子任务」）</span>
                 </label>
               </>
             )}

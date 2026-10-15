@@ -4,6 +4,7 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("subtask-dispatch");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { createCustomAgent, deleteCustomAgent } = await import("../src/services/customAgentService.ts");
@@ -12,7 +13,8 @@ const { listAgentRequests, listRunnableSubtasksForTask, orchestrator } = await i
 const { listAudit } = await import("../src/services/auditService.ts");
 const { listNotifications } = await import("../src/services/notificationService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

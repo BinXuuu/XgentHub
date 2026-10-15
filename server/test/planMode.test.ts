@@ -4,10 +4,12 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("plan-mode");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager, PLAN_APPROVED_MESSAGE } = await import("../src/services/taskManager.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

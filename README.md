@@ -6,13 +6,39 @@ Xgent Hub 是一个本机 Agent 控制台，把你电脑上装的 coding agent �
 
 > 目前只支持 Windows 10 / 11：服务脚本、安装器和调用 CLI 的方式都是按 Windows 写的。
 
+## 截图
+
+**工作台**：所有任务的状态、需要你处理的事、各个 Agent 能不能用，一眼看清。
+
+![工作台](.github/screenshots/dashboard.png)
+
+**审批**：Claude Code 要改文件前先停下来等你批准，可以允许一次、总是允许或拒绝。
+
+![审批弹窗](.github/screenshots/approval.png)
+
+**Diff 审阅**：这一轮 Agent 改了哪些文件、每一行怎么改的，验收通过还是要求修改。
+
+![Diff 审阅](.github/screenshots/diff.png)
+
+**多 Agent 并行**：一个需求拆成几个子任务，分给 Codex、Claude Code、Antigravity 等不同 Agent 同时做；有先后关系的自动排队，全部完成后交回总管家汇总。流动的虚线表示正在运行。
+
+![多 Agent 并行流程](.github/screenshots/flow.png)
+
+**汇总结果**：每个子任务的回复都标明来自哪个子任务、哪个 Agent，最后由总管家核对整个工作区，把结果整理好交给你。
+
+![汇总结果](.github/screenshots/summary.png)
+
+**聊天**：不需要工作区的轻量对话，可以选任意 Agent 和模型连续聊。
+
+![聊天](.github/screenshots/chat.png)
+
 ## 功能
 
 - **任务**：让 Agent 在指定的工作区文件夹里干活，实时看到它的消息、终端输出、文件改动和 Diff。可以中途停止、继续对话，或者把任务转交给另一个 Agent 和模型。
 - **审批队列**：装依赖、跑命令、`git push`、碰密钥文件这类有风险的操作会先等你批准。Claude Code 自己每次调用工具前的确认也会进同一个队列。有待审批时会弹窗、响提示音、改标签页标题、在导航上显示数字。
 - **每个任务三档权限**：请求批准、帮我批准（只有高风险操作问你）、完全访问。
 - **撤回**：Agent 每一轮改动前都会存快照，可以把工作区退回到某一轮之前。
-- **AI 智能拆分**：描述一个大一点的需求，让它拆成多个子任务分给不同的 Agent 和模型，再用流程图跟进进度。
+- **AI 智能拆分 + 并行执行**：描述一个大一点的需求，让它拆成多个子任务分给不同的 Agent 和模型。互不依赖的子任务同时跑，有先后关系的自动排队，全部完成后交回总管家汇总；用流程图跟进进度。`.env` 里的 `AGENTHUB_MAX_PARALLEL_SUBTASKS` 可以限制同时跑几个（默认不限）。
 - **聊天**：不需要工作区的轻量对话，可以选任意 Agent。
 - **角色**：把一个 Agent + 模型包装成固定身份（比如"美工""文案"），带自己的说明和知识库。
 - **知识库、Skill、工具和 MCP**：统一管理一次，再挂到工作区、聊天或角色上。
@@ -94,6 +120,28 @@ install.bat -InstallShortcuts -InstallStartupTask -StartAfterInstall
 | `scripts/restore-data.ps1` | 列出或恢复 `backups/data` 里的自动数据库备份 |
 
 日志在 `logs/`，按月归档，保留一年。
+
+## 自己打包安装程序
+
+本仓库不提供现成的安装包，需要的话可以自己打一个 `.exe`，拿到别的电脑上安装：
+
+1. 先按上面的「安装」在本机跑通一次 `install.bat`。
+2. 安装 [NSIS 3](https://nsis.sourceforge.io/Download)（默认装到 `C:\Program Files (x86)\NSIS` 就能自动找到；装在别处的话运行时加 `-MakensisPath <makensis.exe 的完整路径>`）。
+3. 在项目目录运行：
+
+   ```bash
+   build-nsis-installer.bat
+   ```
+
+   它会先构建并做发布检查（确认安装包里没有 `.env`、数据库、日志、`server/data` 等本机私有文件），再打包。
+4. 生成的安装程序在 `backups\XgentHub-setup-nsis-<日期时间>.exe`。
+
+需要注意：
+
+- 安装程序里只有程序本身，不带 `node_modules`。目标电脑需要先装好 Node.js 22.5+，安装过程中会联网执行 `npm install`。
+- 安装程序没有数字签名，Windows 可能弹出「已保护你的电脑」，点「更多信息 → 仍要运行」即可。
+- 默认装到 `%LOCALAPPDATA%\Programs\Xgent Hub`，不需要管理员权限；卸载时可以选择保留配置和数据。
+- 没装 NSIS 时脚本不会报错退出，只会生成发布压缩包和一份编译命令，装好 NSIS 后再执行那份命令即可。
 
 ## 开发
 

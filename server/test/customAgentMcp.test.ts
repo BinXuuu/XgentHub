@@ -12,8 +12,10 @@ const { taskManager } = await import("../src/services/taskManager.ts");
 const { createCustomAgent, deleteCustomAgent } = await import("../src/services/customAgentService.ts");
 const { createMcpServer, deleteMcpServer } = await import("../src/services/mcpServerService.ts");
 const { createCustomAdapter } = await import("../src/adapters/custom.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

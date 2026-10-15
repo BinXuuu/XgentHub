@@ -5,12 +5,14 @@ import type { Approval } from "../src/types.ts";
 
 const env = setupIsolatedDb("memory-notifications");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { listMemoryEntries } = await import("../src/services/memoryService.ts");
 const { listNotifications, markAllNotificationsRead } = await import("../src/services/notificationService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

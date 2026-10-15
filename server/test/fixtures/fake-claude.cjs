@@ -19,6 +19,7 @@ function finish(text) {
 
 function runTool() {
   fs.mkdirSync(path.join(process.cwd(), "out-dir"), { recursive: true });
+  fs.writeFileSync(path.join(process.cwd(), "out-dir", "result.txt"), "hello\n");
   finish("已建好 out-dir");
 }
 

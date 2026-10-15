@@ -1,6 +1,7 @@
 import { shouldGate } from "./riskPolicy.ts";
 import { listResourceLibraryItems } from "../services/resourceLibraryService.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,7 +27,7 @@ export class MockAdapter implements AgentAdapter {
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
     const prompt = input.text;
-    ctx.setSessionKey(`mock-${ctx.taskId}`);
+    ctx.setSessionKey(`mock-${runtimeKeyOf(ctx)}`);
     ctx.log(`收到任务：${prompt}`);
     if (input.images.length) ctx.log(`（mock 不解析图片内容，仅记录收到 ${input.images.length} 张附件）`);
     await sleep(300);
@@ -127,8 +128,8 @@ export class MockAdapter implements AgentAdapter {
     const demoSkillIds = skills.length > 0 ? [skills[0]!.id] : [];
     return JSON.stringify({
       subtasks: [
-        { title: "梳理需求与素材", description: "（mock）拆解用户请求，列出需要的素材和信息", agentId: "mock", skillIds: [], prompt },
-        { title: "执行核心工作", description: "（mock）完成主要产出", agentId: "mock", skillIds: demoSkillIds, prompt },
+        { title: "梳理需求与素材", description: "（mock）拆解用户请求，列出需要的素材和信息", agentId: "mock", skillIds: [], dependsOn: [], prompt },
+        { title: "执行核心工作", description: "（mock）完成主要产出", agentId: "mock", skillIds: demoSkillIds, dependsOn: [1, 2, 99], prompt },
       ],
       reasoning: "这是 Mock Agent 返回的示例规划，仅用于开发联调。",
     });

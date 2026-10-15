@@ -5,11 +5,13 @@ import { setupIsolatedDb } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("chat-service");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { chatService } = await import("../src/services/chatService.ts");
 const { createCustomAgent, deleteCustomAgent } = await import("../src/services/customAgentService.ts");
 const { createMcpServer, deleteMcpServer } = await import("../src/services/mcpServerService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

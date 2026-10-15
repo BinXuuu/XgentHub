@@ -5,6 +5,7 @@ import {
   recordGatewayUsage,
 } from "../services/gatewayBillingService.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { httpAskError, networkAskError } from "./askErrors.ts";
 
@@ -134,7 +135,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
 
   if (input.images.length) ctx.log(`TokenEZGO adapter 暂不支持图片附件，已忽略 ${input.images.length} 张图片`);
 
-  const history = conversations.get(ctx.taskId) ?? [
+  const history = conversations.get(runtimeKeyOf(ctx)) ?? [
     {
       role: "system",
       content: "你是通过 Xgent Hub 推荐 API 中转站调用的模型。请像结对编程助手一样简洁、准确地回答。",
@@ -152,7 +153,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
 
   const controller = new AbortController();
   const partial = { text: "" };
-  runningTokenEzgoRequests.set(ctx.taskId, controller);
+  runningTokenEzgoRequests.set(runtimeKeyOf(ctx), controller);
   ctx.setStatus("running");
   try {
     const reply = await streamChatCompletion(ctx, model, history, controller.signal, partial);
@@ -168,7 +169,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
         `${usageRecord.budgetExceeded ? "，已超过单任务预算" : ""}`
     );
     history.push({ role: "assistant", content: reply });
-    conversations.set(ctx.taskId, history);
+    conversations.set(runtimeKeyOf(ctx), history);
     ctx.agentMessage(reply || "(空响应)");
     ctx.setStatus("review");
   } catch (err) {
@@ -194,7 +195,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
     );
     ctx.setStatus("failed");
   } finally {
-    if (runningTokenEzgoRequests.get(ctx.taskId) === controller) runningTokenEzgoRequests.delete(ctx.taskId);
+    if (runningTokenEzgoRequests.get(runtimeKeyOf(ctx)) === controller) runningTokenEzgoRequests.delete(runtimeKeyOf(ctx));
   }
 }
 
@@ -230,7 +231,7 @@ export class TokenEzgoAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`tokenezgo-${ctx.taskId}`);
+    ctx.setSessionKey(`tokenezgo-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input);
   }
 
@@ -243,7 +244,7 @@ export class TokenEzgoAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const controller = runningTokenEzgoRequests.get(ctx.taskId);
+    const controller = runningTokenEzgoRequests.get(runtimeKeyOf(ctx));
     if (controller) {
       ctx.log("正在终止推荐 API 中转站请求...");
       controller.abort();

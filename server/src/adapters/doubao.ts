@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { httpAskError, networkAskError } from "./askErrors.ts";
 
@@ -162,7 +163,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
 
   if (input.images.length) ctx.log(`Doubao adapter 暂不支持图片附件，已忽略 ${input.images.length} 张图片`);
 
-  const history = conversations.get(ctx.taskId) ?? [
+  const history = conversations.get(runtimeKeyOf(ctx)) ?? [
     {
       role: "system",
       content: "你是通过 Xgent Hub 调用的豆包/火山方舟模型。请简洁、准确地回答，并在涉及代码时给出可执行建议。",
@@ -171,12 +172,12 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
   history.push({ role: "user", content: input.text });
 
   const controller = new AbortController();
-  runningDoubaoRequests.set(ctx.taskId, controller);
+  runningDoubaoRequests.set(runtimeKeyOf(ctx), controller);
   ctx.setStatus("running");
   try {
     const reply = await streamChatCompletion(ctx, model, history, controller.signal);
     history.push({ role: "assistant", content: reply });
-    conversations.set(ctx.taskId, history);
+    conversations.set(runtimeKeyOf(ctx), history);
     ctx.agentMessage(reply || "(空响应)");
     ctx.setStatus("review");
   } catch (err) {
@@ -188,7 +189,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
     );
     ctx.setStatus("failed");
   } finally {
-    if (runningDoubaoRequests.get(ctx.taskId) === controller) runningDoubaoRequests.delete(ctx.taskId);
+    if (runningDoubaoRequests.get(runtimeKeyOf(ctx)) === controller) runningDoubaoRequests.delete(runtimeKeyOf(ctx));
   }
 }
 
@@ -218,7 +219,7 @@ export class DoubaoAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`doubao-${ctx.taskId}`);
+    ctx.setSessionKey(`doubao-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input);
   }
 
@@ -231,7 +232,7 @@ export class DoubaoAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const controller = runningDoubaoRequests.get(ctx.taskId);
+    const controller = runningDoubaoRequests.get(runtimeKeyOf(ctx));
     if (controller) {
       ctx.log("正在终止 Doubao 请求...");
       controller.abort();

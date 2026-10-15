@@ -4,6 +4,7 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("task-review");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { listTaskRuns } = await import("../src/services/coreModelService.ts");
@@ -13,7 +14,8 @@ const { listNotifications } = await import("../src/services/notificationService.
 const { listMemoryEntries } = await import("../src/services/memoryService.ts");
 const { orchestrator } = await import("../src/orchestrator/orchestratorService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

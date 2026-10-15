@@ -5,12 +5,14 @@ import type { Approval } from "../src/types.ts";
 
 const env = setupIsolatedDb("task-manager");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { listArtifacts, listSubtasks, listTaskRuns } = await import("../src/services/coreModelService.ts");
 const { listAgentRequests, listRunCheckpoints } = await import("../src/orchestrator/orchestratorService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

@@ -76,6 +76,14 @@ test("请求批准: Claude Code waits in the approval queue, task shows needs_ap
   assert.ok(fs.existsSync(path.join(dir, "out-dir")), "the approved command actually ran");
   assert.ok(taskManager.listMessages(task.id).some((message) => message.content.includes("已建好 out-dir")));
   assert.equal(taskManager.listApprovals(task.id)[0]?.status, "approved");
+
+  // Claude Code 自己不报改了哪些文件，这一轮结束后由快照补上，"文件 / Diff"页才不是空的。
+  const files = await waitFor(() => (taskManager.getFiles(task.id).length ? taskManager.getFiles(task.id) : null), {
+    timeoutMs: 15_000,
+    description: "file changes recorded from the pre-run snapshot",
+  });
+  assert.deepEqual(files.map((file) => [file.path, file.action]), [["out-dir/result.txt", "created"]]);
+  assert.match(taskManager.getDiff(task.id), /\+hello/);
 });
 
 test("denying sends the reason back to Claude Code and nothing runs", async () => {

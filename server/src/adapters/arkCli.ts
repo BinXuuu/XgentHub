@@ -6,6 +6,7 @@ import { scanRisk, shouldGate } from "./riskPolicy.ts";
 import { killProcessTree, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { ASK_TIMEOUT_MS, cliAskError } from "./askErrors.ts";
 
@@ -272,7 +273,7 @@ function handleStreamLine(ctx: TaskRuntimeContext, state: StreamState, line: str
 function buildPrompt(ctx: TaskRuntimeContext, input: TurnInput, resumeResponseId: string | null): string {
   const current = buildWorkspacePrompt(ctx.workspacePath, input.text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths);
   if (resumeResponseId) return current;
-  const history = conversations.get(ctx.taskId) ?? [];
+  const history = conversations.get(runtimeKeyOf(ctx)) ?? [];
   const previous = history
     .slice(-6)
     .map((msg) => `${msg.role === "user" ? "用户" : "助手"}：${msg.content}`)
@@ -335,9 +336,9 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
     let stderr = "";
     let stoppedReason: string | null = null;
     const cleanupRunningProcess = () => {
-      if (runningArkCliProcesses.get(ctx.taskId)?.child === child) runningArkCliProcesses.delete(ctx.taskId);
+      if (runningArkCliProcesses.get(runtimeKeyOf(ctx))?.child === child) runningArkCliProcesses.delete(runtimeKeyOf(ctx));
     };
-    runningArkCliProcesses.set(ctx.taskId, {
+    runningArkCliProcesses.set(runtimeKeyOf(ctx), {
       child,
       kill: (reason: string) => {
         stoppedReason = reason;
@@ -406,11 +407,11 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
       }
 
       if (state.responseId) ctx.setSessionKey(state.responseId);
-      else if (!ctx.sessionKey) ctx.setSessionKey(`ark-cli-${ctx.taskId}`);
+      else if (!ctx.sessionKey) ctx.setSessionKey(`ark-cli-${runtimeKeyOf(ctx)}`);
       const reply = (state.streamed || state.finalText).trim();
-      const history = conversations.get(ctx.taskId) ?? [];
+      const history = conversations.get(runtimeKeyOf(ctx)) ?? [];
       history.push({ role: "user", content: input.text }, { role: "assistant", content: reply });
-      conversations.set(ctx.taskId, history.slice(-12));
+      conversations.set(runtimeKeyOf(ctx), history.slice(-12));
       ctx.agentMessage(reply || "(空响应)");
       ctx.setStatus("review");
       resolve();
@@ -471,7 +472,7 @@ export class ArkCliAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`ark-cli-${ctx.taskId}`);
+    ctx.setSessionKey(`ark-cli-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input);
   }
 
@@ -480,7 +481,7 @@ export class ArkCliAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningArkCliProcesses.get(ctx.taskId);
+    const running = runningArkCliProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止 Ark CLI 进程树...");
       running.kill("用户停止");

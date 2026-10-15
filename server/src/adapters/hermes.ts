@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import { httpAskError, networkAskError } from "./askErrors.ts";
 
 interface ChatMessage {
@@ -94,7 +95,7 @@ async function askOnce(prompt: string, requestedModel?: string | null): Promise<
 async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
   const text = input.text;
   if (input.images.length) ctx.log(`Hermes 是纯文本模型服务，暂不支持图片附件，已忽略 ${input.images.length} 张图片`);
-  const history = conversations.get(ctx.taskId) ?? [
+  const history = conversations.get(runtimeKeyOf(ctx)) ?? [
     {
       role: "system",
       content:
@@ -105,12 +106,12 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
 
   const model = ctx.model || config.hermes.model;
   const controller = new AbortController();
-  runningHermesRequests.set(ctx.taskId, controller);
+  runningHermesRequests.set(runtimeKeyOf(ctx), controller);
   ctx.setStatus("running");
   try {
     const reply = await streamChatCompletion(ctx, model, history, controller.signal);
     history.push({ role: "assistant", content: reply });
-    conversations.set(ctx.taskId, history);
+    conversations.set(runtimeKeyOf(ctx), history);
     ctx.agentMessage(reply || "(空响应)");
     ctx.setStatus("review");
   } catch (err) {
@@ -122,7 +123,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
     );
     ctx.setStatus("failed");
   } finally {
-    if (runningHermesRequests.get(ctx.taskId) === controller) runningHermesRequests.delete(ctx.taskId);
+    if (runningHermesRequests.get(runtimeKeyOf(ctx)) === controller) runningHermesRequests.delete(runtimeKeyOf(ctx));
   }
 }
 
@@ -146,7 +147,7 @@ export class HermesAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`hermes-${ctx.taskId}`);
+    ctx.setSessionKey(`hermes-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input);
   }
 
@@ -159,7 +160,7 @@ export class HermesAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const controller = runningHermesRequests.get(ctx.taskId);
+    const controller = runningHermesRequests.get(runtimeKeyOf(ctx));
     if (controller) {
       ctx.log("正在终止 Hermes 请求...");
       controller.abort();

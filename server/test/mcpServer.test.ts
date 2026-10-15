@@ -4,6 +4,7 @@ import { setupIsolatedDb } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("mcp-server");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace, getWorkspace, updateWorkspaceResources } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { resolveEffectiveResources } = await import("../src/services/taskResourceService.ts");
@@ -11,7 +12,8 @@ const { createMcpServer, deleteMcpServer, getMcpServer, getMcpServerUsage, listM
   "../src/services/mcpServerService.ts"
 );
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });

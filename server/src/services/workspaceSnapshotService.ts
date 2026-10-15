@@ -291,6 +291,39 @@ export function previewRestore(snapshot: WorkspaceSnapshot, workspacePath: strin
   });
 }
 
+export interface SnapshotFileChange {
+  path: string;
+  action: "created" | "modified" | "deleted";
+  diff?: string;
+}
+
+const CHANGE_MAX_FILES = 200;
+const CHANGE_MAX_DIFF_CHARS = 200_000;
+
+/**
+ * 这个快照之后工作区改了哪些文件，每个文件带 git 格式的 diff。给不自己上报文件改动的 Agent
+ * （Claude Code、Antigravity、OpenClaw 等）在一轮结束后补"文件 / Diff"用。
+ */
+export function diffSinceSnapshot(snapshot: WorkspaceSnapshot, workspacePath: string): Promise<SnapshotFileChange[]> {
+  return withWorkspaceLock(snapshot.workspaceId, async () => {
+    await ensureRepo(snapshot.workspaceId, workspacePath);
+    const git = shadowGit(snapshot.workspaceId, workspacePath);
+    await git(["add", "-A", "--ignore-errors", "."]);
+    const nameStatus = await git(["diff", "--cached", "--name-status", "--no-renames", snapshot.commitId]);
+    const changes: SnapshotFileChange[] = [];
+    for (const line of nameStatus.split(/\r?\n/)) {
+      if (!line.trim() || changes.length >= CHANGE_MAX_FILES) continue;
+      const [status, ...rest] = line.split("\t");
+      const file = rest.join("\t");
+      const action = status.startsWith("A") ? "created" : status.startsWith("D") ? "deleted" : "modified";
+      let diff = await git(["diff", "--cached", "--no-renames", snapshot.commitId, "--", file]);
+      if (diff.length > CHANGE_MAX_DIFF_CHARS) diff = `${diff.slice(0, CHANGE_MAX_DIFF_CHARS)}\n…（diff 太长，后面省略）\n`;
+      changes.push({ path: file, action, diff: diff.trim() ? diff : undefined });
+    }
+    return changes;
+  });
+}
+
 /** 把工作区恢复到快照那一刻。恢复前先自动存一份当前状态（before_restore），撤回本身也能再撤回。 */
 export function restoreSnapshot(
   snapshot: WorkspaceSnapshot,

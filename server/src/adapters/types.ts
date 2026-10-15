@@ -15,6 +15,12 @@ export interface McpServerSpec {
 // adapter 通过它写日志/终端输出/文件改动/发起审批，而不用直接碰数据库或事件总线。
 export interface TaskRuntimeContext {
   taskId: string;
+  /**
+   * 这一次运行在适配器内部的标识：记正在跑的进程、对话历史、会话名都用它，不要直接用 taskId。
+   * 普通的一轮等于 taskId；并行子任务是 "<taskId>:<subtaskId>"，同一个任务里同时跑两个同类 Agent 才不会互相覆盖。
+   * 用 runtimeKeyOf(ctx) 取值（没设时退回 taskId）。
+   */
+  runtimeKey?: string;
   agentId: string;
   workspaceId: string;
   workspacePath: string;
@@ -126,4 +132,9 @@ export interface AgentAdapter {
 
   /** 尽力停止正在运行的任务（可选）。 */
   stop?(ctx: TaskRuntimeContext): Promise<void>;
+}
+
+/** 适配器内部按"这一次运行"记状态用的 key，见 TaskRuntimeContext.runtimeKey。 */
+export function runtimeKeyOf(ctx: Pick<TaskRuntimeContext, "taskId" | "runtimeKey">): string {
+  return ctx.runtimeKey || ctx.taskId;
 }

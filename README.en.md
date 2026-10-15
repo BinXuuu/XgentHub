@@ -6,13 +6,39 @@ Xgent Hub is a local control console for the coding agents installed on your com
 
 > The user interface is currently in Simplified Chinese. Windows 10/11 is the only supported platform: the service scripts, installer and CLI launching are Windows-specific.
 
+## Screenshots
+
+**Dashboard**: task status, what needs your attention, and which agents are ready, at a glance.
+
+![Dashboard](.github/screenshots/dashboard.png)
+
+**Approvals**: Claude Code stops before editing a file and waits for you to allow it once, always allow, or deny.
+
+![Approval pop-up](.github/screenshots/approval.png)
+
+**Diff review**: every file the agent changed in this round, line by line, then accept or ask for changes.
+
+![Diff review](.github/screenshots/diff.png)
+
+**Parallel agents**: one request split into subtasks handed to different agents (Codex, Claude Code, Antigravity…) that work at the same time; steps that depend on others wait for them, and everything comes back to the coordinator for a summary. Animated dashed edges are runs in progress.
+
+![Parallel multi-agent flow](.github/screenshots/flow.png)
+
+**Summary**: every subtask's reply is labelled with its subtask and agent; at the end the coordinator checks the whole workspace and hands you the result.
+
+![Summary](.github/screenshots/summary.png)
+
+**Chat**: lightweight conversations with any agent and model, no workspace needed.
+
+![Chat](.github/screenshots/chat.png)
+
 ## Features
 
 - **Tasks**: give an agent a job in a workspace folder and follow its messages, terminal output, file changes and diffs live. Stop it, continue the conversation, or hand the task over to another agent and model mid-way.
 - **Approval queue**: risky actions (installing packages, running commands, `git push`, touching secrets) wait for your approval. Claude Code's own per-tool permission prompts appear in the same queue. A pop-up, sound, tab title and badge tell you when something is waiting.
 - **Three permission levels per task**: ask for approval, approve for me (only high-risk actions ask), or full access.
 - **Undo**: every agent turn is snapshotted, so you can roll a workspace back to before a turn.
-- **AI task splitting**: describe a larger job and let a planner split it into subtasks assigned to different agents and models, then follow it as a flow graph.
+- **AI task splitting with parallel execution**: describe a larger job and let a planner split it into subtasks assigned to different agents and models. Independent subtasks run at the same time, dependent ones wait, and the coordinator summarizes the results at the end; follow it all as a flow graph. `AGENTHUB_MAX_PARALLEL_SUBTASKS` in `.env` limits how many run at once (unlimited by default).
 - **Chat**: lightweight conversations with any agent, without a workspace.
 - **Roles**: wrap an agent and model into a fixed persona ("designer", "copywriter") with its own instructions and knowledge.
 - **Knowledge base, Skills, tools and MCP servers**: manage them once and attach them to workspaces, chats or roles.
@@ -94,6 +120,28 @@ Every agent's settings page has a diagnostics panel and an install guide with co
 | `scripts/restore-data.ps1` | List or restore automatic database backups from `backups/data` |
 
 Logs are written to `logs/`, rotated monthly and kept for a year.
+
+## Building an installer
+
+No prebuilt installer is published. To make your own `.exe` for installing on other computers:
+
+1. Get `install.bat` working on this machine first (see Install above).
+2. Install [NSIS 3](https://nsis.sourceforge.io/Download). The default location `C:\Program Files (x86)\NSIS` is found automatically; otherwise pass `-MakensisPath <full path to makensis.exe>`.
+3. In the project folder, run:
+
+   ```bash
+   build-nsis-installer.bat
+   ```
+
+   It builds the project and runs a release check (making sure no `.env`, database, logs or `server/data` files are included) before packaging.
+4. The installer is written to `backups\XgentHub-setup-nsis-<date-time>.exe`.
+
+Notes:
+
+- The installer contains the program only, without `node_modules`. The target computer needs Node.js 22.5+ and internet access, because setup runs `npm install`.
+- The installer is not code-signed, so Windows may show "Windows protected your PC". Choose "More info → Run anyway".
+- It installs per user into `%LOCALAPPDATA%\Programs\Xgent Hub` without administrator rights. Uninstalling can keep your configuration and data.
+- If NSIS is not installed, the script does not fail: it leaves the release zip and a ready-to-run compile command to use once NSIS is installed.
 
 ## Development
 

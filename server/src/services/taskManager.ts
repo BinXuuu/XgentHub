@@ -30,12 +30,14 @@ import { describeTaskResources, resolveEffectiveResources, type TaskResourcesVie
 import { createNotification, markNotificationReadBySourceKey } from "./notificationService.ts";
 import { createRecoveryAction, listRecoveryActions as listTaskRecoveryActions } from "./recoveryService.ts";
 import { createReviewDecision, listReviewDecisions as listTaskReviewDecisions } from "./reviewService.ts";
-import { createPlannedSubtasks, createPlannedSubtasksFromPlan, planSubtasks } from "./subtaskPlannerService.ts";
+import { createPlannedSubtasks, createPlannedSubtasksFromPlan, isPlanSummarySubtask, planSubtasks } from "./subtaskPlannerService.ts";
 import { resolveMcpServers } from "./mcpServerService.ts";
 import { buildLibraryContext } from "./resourceLibraryService.ts";
+import type { WorkspaceSnapshot as TurnSnapshot } from "./workspaceSnapshotService.ts";
 import {
   createSnapshot,
   deleteTaskSnapshots,
+  diffSinceSnapshot,
   getSnapshot,
   linkSnapshotMessage,
   listTaskSnapshots,
@@ -153,13 +155,14 @@ export const PLAN_APPROVED_MESSAGE = "计划已批准，请按上面的计划开
  * AI 智能拆分建任务时，总管家（任务本身的 Agent）第一轮收到的指令：只做统筹，不自己把活干了——
  * 真正的活由后面按计划派发的各个子任务去做，不然同一件事会被做两遍。
  */
-function buildPlanCoordinatorBrief(userPrompt: string, plan: MultiAgentPlan, subtasks: Subtask[]): string {
+function buildPlanCoordinatorBrief(userPrompt: string, plan: MultiAgentPlan, allSubtasks: Subtask[]): string {
+  const subtasks = allSubtasks.filter((subtask) => !isPlanSummarySubtask(subtask));
   const lines = subtasks.map((subtask, index) => {
     const agentName = subtask.assignedAgentId ? getAdapter(subtask.assignedAgentId)?.name ?? subtask.assignedAgentId : "未指定";
     return `${index + 1}. ${subtask.title}（${agentName}）`;
   });
   return [
-    `这个任务已经拆成下面 ${subtasks.length} 个子任务，会按顺序派给各自的 Agent 去做：`,
+    `这个任务已经拆成下面 ${subtasks.length} 个子任务，依赖满足的会同时派给各自的 Agent 并行去做，全部完成后再交回给你汇总：`,
     ...lines,
     "",
     "你是这个任务的总管家。这一轮不要自己动手做这些子任务，也不要修改文件。",
@@ -171,6 +174,19 @@ function buildPlanCoordinatorBrief(userPrompt: string, plan: MultiAgentPlan, sub
   ]
     .filter((line) => line !== null)
     .join("\n");
+}
+
+/** 一个任务里最多同时跑几个子任务；0 / 不设 = 不限制。 */
+const MAX_PARALLEL_SUBTASKS = Math.max(0, Math.floor(Number(process.env.AGENTHUB_MAX_PARALLEL_SUBTASKS) || 0));
+const IN_PROGRESS_RUN_STATUSES = new Set(["queued", "waiting", "running", "needs_approval"]);
+
+interface ActiveRun {
+  adapter: AgentAdapter;
+  ctx: TaskRuntimeContext;
+}
+
+function clipText(text: string, length: number): string {
+  return text.length > length ? `${text.slice(0, length)}\n…（后面省略）` : text;
 }
 
 function clipTitle(text: string, length = 72): string {
@@ -211,6 +227,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 class TaskManager {
   private pendingApprovals = new Map<string, PendingApproval>();
+  /** 每个任务当前正在跑的每一轮（并行子任务会有好几轮）：停止时逐个停，算任务状态时看还有没有别的在跑。 */
+  private activeRuns = new Map<string, Map<string, ActiveRun>>();
+  /** 每一轮（runId）里 Agent 自己上报了几次文件改动；为 0 的话一轮结束后用快照补。 */
+  private reportedFileChanges = new Map<string, number>();
   private stoppers = new Map<string, () => void>();
   private modelCache = new Map<string, CachedOptions>();
   private subAgentCache = new Map<string, CachedOptions>();
@@ -392,7 +412,9 @@ class TaskManager {
       .join("\n");
   }
 
-  private createCtx(task: Task, runId?: string, turnText?: string): TaskRuntimeContext {
+  private createCtx(task: Task, runId?: string, turnText?: string, opts: { subtask?: Subtask; agentName?: string } = {}): TaskRuntimeContext {
+    // 并行子任务各用各的运行标识和会话，不能共用、也不能改写主任务的会话（汇总那一轮还要接着主任务的会话聊）。
+    const subtaskRun = opts.subtask ?? null;
     const taskStillExists = () => Boolean(db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(task.id));
     const workspace = getWorkspace(task.workspaceId);
     let workspacePrompt: string | null = null;
@@ -447,13 +469,14 @@ class TaskManager {
 
     return {
       taskId: task.id,
+      runtimeKey: subtaskRun ? `${task.id}:${subtaskRun.id}` : task.id,
       agentId: task.agentId,
       workspaceId: task.workspaceId,
       workspacePath: workspace?.path ?? process.cwd(),
       workspaceAccessPaths: workspace?.accessPaths ?? (workspace?.path ? [workspace.path] : [process.cwd()]),
       workspacePrompt,
       workspaceKnowledge,
-      sessionKey: task.sessionKey,
+      sessionKey: subtaskRun ? null : task.sessionKey,
       model: task.model,
       permissionMode: task.permissionMode,
       planMode: task.planMode,
@@ -463,9 +486,12 @@ class TaskManager {
 
       log: (message: string) => insertEvent("log", { message }),
       terminal: (chunk: string) => insertEvent("terminal", { chunk }),
-      agentMessage: (content: string) => addMessage("agent", content),
+      // 并行时几个子任务的回复会交错出现在对话里，前面标上是哪个子任务、哪个 Agent。
+      agentMessage: (content: string) =>
+        addMessage("agent", subtaskRun ? `【${subtaskRun.title} · ${opts.agentName ?? task.agentId}】\n${content}` : content),
       fileChange: (path: string, action: FileChange["action"], diff?: string) => {
         if (!taskStillExists()) return;
+        if (runId) this.reportedFileChanges.set(runId, (this.reportedFileChanges.get(runId) ?? 0) + 1);
         const id = nanoid();
         const createdAt = now();
         try {
@@ -570,7 +596,7 @@ class TaskManager {
       cancelPendingApprovals: (note: string) => this.cancelPendingApprovals(task.id, note),
       setStatus: (status) => this.setStatus(task.id, status, runId),
       setSessionKey: (sessionKey: string) => {
-        db.prepare("UPDATE tasks SET session_key = ? WHERE id = ?").run(sessionKey, task.id);
+        if (!subtaskRun) db.prepare("UPDATE tasks SET session_key = ? WHERE id = ?").run(sessionKey, task.id);
         syncRunSessionKey(task.id, sessionKey, runId);
       },
     };
@@ -578,6 +604,23 @@ class TaskManager {
 
   private setStatus(taskId: string, status: TaskStatus, runId?: string, error?: string | null) {
     orchestrator.updateRunStatus({ taskId, status, runId, error });
+
+    // 还有别的子任务在跑：任务整体仍是"运行中"（有在等审批的就是"待审批"），不能因为其中一个跑完就进复核；
+    // 但这一个跑完可能让后面的子任务依赖满足了，马上派出去。
+    const others = this.otherActiveRunStatuses(taskId, runId);
+    if (others.length > 0) {
+      const effective: TaskStatus = status === "needs_approval" || others.includes("needs_approval") ? "needs_approval" : "running";
+      db.prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run(effective, now(), taskId);
+      emitTaskStatusChanged({
+        taskId,
+        status: effective,
+        runId,
+        payload: error ? { status: effective, runStatus: status, error } : { status: effective, runStatus: status },
+      });
+      if (status === "review" || status === "done") this.maybeAutoAdvancePlan(taskId);
+      return;
+    }
+
     const aggregate = this.resolveAggregateStatus(taskId, status);
     db.prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run(aggregate.status, now(), taskId);
     emitTaskStatusChanged({
@@ -588,7 +631,54 @@ class TaskManager {
     });
     if (aggregate.nextRunnableSubtask) this.recordSubtaskReady(taskId, aggregate.nextRunnableSubtask, runId);
     this.recordStatusSideEffects(taskId, aggregate.status, error, aggregate.nextRunnableSubtask);
-    this.maybeAutoAdvancePlan(taskId, aggregate.nextRunnableSubtask);
+    if (aggregate.nextRunnableSubtask) this.maybeAutoAdvancePlan(taskId);
+  }
+
+  private trackRun(taskId: string, runId: string, adapter: AgentAdapter, ctx: TaskRuntimeContext): void {
+    let runs = this.activeRuns.get(taskId);
+    if (!runs) {
+      runs = new Map();
+      this.activeRuns.set(taskId, runs);
+    }
+    runs.set(runId, { adapter, ctx });
+  }
+
+  private untrackRun(taskId: string, runId: string): void {
+    const runs = this.activeRuns.get(taskId);
+    if (!runs) return;
+    runs.delete(runId);
+    if (runs.size === 0) this.activeRuns.delete(taskId);
+  }
+
+  /** 这个任务里除了 runId 之外、还没结束的那些轮的状态。 */
+  private otherActiveRunStatuses(taskId: string, runId?: string): string[] {
+    const runs = this.activeRuns.get(taskId);
+    if (!runs) return [];
+    const statuses: string[] = [];
+    for (const id of runs.keys()) {
+      if (id === runId) continue;
+      const row = db.prepare("SELECT status FROM task_runs WHERE id = ?").get(id) as { status: string } | undefined;
+      if (row && IN_PROGRESS_RUN_STATUSES.has(row.status)) statuses.push(row.status);
+    }
+    return statuses;
+  }
+
+  private activeRunCount(taskId: string): number {
+    return this.otherActiveRunStatuses(taskId).length;
+  }
+
+  /** 启动一轮：登记为正在跑，结束后注销并处理排队消息。所有启动 Agent 的地方都走这里，停止才能停全。 */
+  private launch(taskId: string, runId: string, adapter: AgentAdapter, ctx: TaskRuntimeContext, start: () => Promise<void>, failLabel: string): void {
+    this.trackRun(taskId, runId, adapter, ctx);
+    void start()
+      .catch((err) => {
+        ctx.log(`${failLabel}：${(err as Error).message}`);
+        this.setStatus(taskId, "failed", runId, (err as Error).message);
+      })
+      .finally(() => {
+        this.untrackRun(taskId, runId);
+        this.tryAdvanceQueue(taskId);
+      });
   }
 
   /**
@@ -597,15 +687,31 @@ class TaskManager {
    * 不需要再等人工点一次"执行下个子任务"——直接按计划派发。
    * 单条子任务内部的风险审批闸门（scanRisk/shouldGate/requestApproval）不受影响，照常生效。
    */
-  private maybeAutoAdvancePlan(taskId: string, nextRunnableSubtask: Subtask | null): void {
-    if (!nextRunnableSubtask || !nextRunnableSubtask.assignedAgentId) return;
+  private maybeAutoAdvancePlan(taskId: string): void {
     const task = this.getTask(taskId);
     if (!task || !task.autoAdvancePlan) return;
-    try {
-      this.dispatchNextSubtask(taskId, {}, "auto_advance_plan");
-    } catch (err) {
-      this.recordMessage(taskId, "system", `自动派发子任务「${nextRunnableSubtask.title}」失败：${(err as Error).message}`);
+    this.dispatchRunnableSubtasks(taskId, "auto_advance_plan");
+  }
+
+  /**
+   * 把依赖已满足的子任务全部派出去，同时跑（受 AGENTHUB_MAX_PARALLEL_SUBTASKS 限制）。
+   * 已经在跑的子任务状态是 running，不会被重复派发。
+   */
+  private dispatchRunnableSubtasks(taskId: string, actor: string): number {
+    let started = 0;
+    for (const subtask of this.listRunnableSubtasks(taskId)) {
+      if (!subtask.assignedAgentId) continue;
+      if (MAX_PARALLEL_SUBTASKS > 0 && this.activeRunCount(taskId) >= MAX_PARALLEL_SUBTASKS) break;
+      const task = this.getTask(taskId);
+      if (!task) break;
+      try {
+        this.startSubtask(task, subtask, {}, actor);
+        started += 1;
+      } catch (err) {
+        this.recordMessage(taskId, "system", `自动派发子任务「${subtask.title}」失败：${(err as Error).message}`);
+      }
     }
+    return started;
   }
 
   /**
@@ -624,9 +730,7 @@ class TaskManager {
     // 恢复时如果已经有一个依赖就绪的子任务在等（比如暂停期间上一个 run 刚好跑完），
     // 不能指望"下一次状态变化"才触发——那一次状态变化已经发生过了。这里主动补一次检查，
     // 不然用户点了"恢复"却发现什么都没发生，还得再手动点一次"执行下个子任务"。
-    if (enabled && !this.isBusy(taskId)) {
-      this.maybeAutoAdvancePlan(taskId, this.listRunnableSubtasks(taskId)[0] ?? null);
-    }
+    if (enabled) this.dispatchRunnableSubtasks(taskId, actor);
     return this.getTask(taskId)!;
   }
 
@@ -672,11 +776,6 @@ class TaskManager {
     return this.getTask(taskId)!;
   }
 
-  private isBusy(taskId: string): boolean {
-    const status = this.getTask(taskId)?.status;
-    return status === "running" || status === "needs_approval";
-  }
-
   private assignTaskAgent(taskId: string, adapter: AgentAdapter, model: string | null) {
     db.prepare(
       "UPDATE tasks SET agent_id = ?, agent_kind = ?, model = ?, sub_agent_id = NULL, base_agent_id = ?, updated_at = ? WHERE id = ?"
@@ -700,6 +799,12 @@ class TaskManager {
     const subtasks = listSubtasks(taskId);
     const childSubtasks = subtasks.filter((subtask) => subtask.parentSubtaskId);
     if (childSubtasks.length === 0) return { status, nextRunnableSubtask: null };
+
+    // 并行时某个子任务失败了，其他的会继续跑完；全部停下来以后，任务整体算失败，不进汇总。
+    if (childSubtasks.some((subtask) => ["failed", "timed_out", "cancelled"].includes(subtask.status))) {
+      return { status: "failed", nextRunnableSubtask: null };
+    }
+    if (childSubtasks.some((subtask) => subtask.status === "stopped")) return { status: "stopped", nextRunnableSubtask: null };
 
     const successful = new Set(["done", "review"]);
     const allChildrenSuccessful = childSubtasks.every((subtask) => successful.has(subtask.status));
@@ -912,35 +1017,75 @@ class TaskManager {
     const firstTurnText =
       input.multiAgentPlan && plannedSubtasks.length > 0 ? buildPlanCoordinatorBrief(prompt, input.multiAgentPlan, plannedSubtasks) : prompt;
 
-    void this.snapshotBeforeRun(task, ctx, run.id, messageId)
-      .then((stillActive) => (stillActive ? adapter.run(ctx, { text: firstTurnText, images }) : undefined))
-      .catch((err) => {
-        ctx.log(`任务执行异常：${(err as Error).message}`);
-        this.setStatus(id, "failed", run.id, (err as Error).message);
-      })
-      .finally(() => this.tryAdvanceQueue(id));
+    this.launch(id, run.id, adapter, ctx, () => this.runTurn(task, ctx, run.id, messageId, () => adapter.run(ctx, { text: firstTurnText, images })), "任务执行异常");
 
     return task;
   }
 
+  /** 一轮的完整流程：拍快照 → 跑 Agent → Agent 没自己上报文件改动的话，用快照补上这一轮改了什么。 */
+  private async runTurn(task: Task, ctx: TaskRuntimeContext, runId: string, messageId: string, start: () => Promise<void>): Promise<void> {
+    const { stillActive, snapshot } = await this.snapshotBeforeRun(task, ctx, runId, messageId);
+    if (!stillActive) return;
+    try {
+      await start();
+    } finally {
+      // 不等它：算 diff 要跑 git，不能拖住后面的排队消息派发。它排在同一工作区的快照锁里，
+      // 下一轮的快照一定在它之后才拍，所以算出来的仍是这一轮的改动。
+      void this.recordTurnFileChanges(task, ctx, runId, snapshot);
+    }
+  }
+
+  /**
+   * Claude Code、Antigravity、OpenClaw 这类 Agent 不会告诉我们改了哪些文件（Codex 会），"文件 / Diff"页就一直是空的。
+   * 这里拿这一轮开始前的快照和现在的工作区比一下补上。同一工作区同时有别的任务在改的话，它们的改动也会算进来。
+   */
+  private async recordTurnFileChanges(task: Task, ctx: TaskRuntimeContext, runId: string, snapshot: TurnSnapshot | null): Promise<void> {
+    const reported = this.reportedFileChanges.get(runId) ?? 0;
+    this.reportedFileChanges.delete(runId);
+    if (reported > 0 || !snapshot) return;
+    // 这一步在一轮结束之后才跑，任务可能已被删除、服务可能正在关闭（数据库已关），都只能安静跳过，不能再抛错。
+    try {
+      if (!this.getTask(task.id)) return;
+      const workspace = getWorkspace(task.workspaceId);
+      if (!workspace) return;
+      const changes = await diffSinceSnapshot(snapshot, workspace.path);
+      for (const change of changes) ctx.fileChange(change.path, change.action, change.diff);
+    } catch (err) {
+      try {
+        if (this.getTask(task.id)) ctx.log(`统计这一轮的文件改动失败：${(err as Error).message}`);
+      } catch {
+        // 数据库已关闭
+      }
+    }
+  }
+
   /**
    * 派发前给工作区拍快照，供"撤回这一轮"用。拍失败不阻塞派发，只是这一轮不能撤回。
-   * 返回值表示拍完之后还要不要启动 Agent：拍快照期间用户点了停止 / 删了任务，就不能再启动。
+   * stillActive 表示拍完之后还要不要启动 Agent：拍快照期间用户点了停止 / 删了任务，就不能再启动。
    */
-  private async snapshotBeforeRun(task: Task, ctx: TaskRuntimeContext, runId: string, messageId: string): Promise<boolean> {
+  private async snapshotBeforeRun(
+    task: Task,
+    ctx: TaskRuntimeContext,
+    runId: string,
+    messageId: string
+  ): Promise<{ stillActive: boolean; snapshot: TurnSnapshot | null }> {
     const workspace = getWorkspace(task.workspaceId);
+    let snapshot: TurnSnapshot | null = null;
     if (workspace) {
       try {
-        await createSnapshot({ workspaceId: workspace.id, workspacePath: workspace.path, taskId: task.id, runId, messageId, kind: "before_run" });
+        snapshot = await createSnapshot({ workspaceId: workspace.id, workspacePath: workspace.path, taskId: task.id, runId, messageId, kind: "before_run" });
         // 拍快照期间任务被删了：快照记录是删除之后才写进去的，清掉免得留下孤儿数据。
-        if (!this.getTask(task.id)) deleteTaskSnapshots(task.id);
+        if (!this.getTask(task.id)) {
+          deleteTaskSnapshots(task.id);
+          snapshot = null;
+        }
       } catch (err) {
         if (this.getTask(task.id)) {
           ctx.log(err instanceof SnapshotSkippedError ? err.message : `工作区快照失败，这一轮之后不能撤回：${(err as Error).message}`);
         }
       }
     }
-    return this.getTask(task.id)?.status === "running";
+    return { stillActive: this.getTask(task.id)?.status === "running", snapshot };
   }
 
   listSnapshots(taskId: string): WorkspaceSnapshot[] {
@@ -1129,13 +1274,7 @@ class TaskManager {
     this.setStatus(taskId, "running", run.id);
 
     const ctx = this.createCtx(task, run.id, text);
-    void this.snapshotBeforeRun(task, ctx, run.id, messageId)
-      .then((stillActive) => (stillActive ? adapter.continueTask(ctx, { text, images }) : undefined))
-      .catch((err) => {
-        ctx.log(`任务执行异常：${(err as Error).message}`);
-        this.setStatus(taskId, "failed", run.id, (err as Error).message);
-      })
-      .finally(() => this.tryAdvanceQueue(taskId));
+    this.launch(taskId, run.id, adapter, ctx, () => this.runTurn(task, ctx, run.id, messageId, () => adapter.continueTask(ctx, { text, images })), "任务执行异常");
   }
 
   private resolveContinueSubtaskId(taskId: string, sourceRunId?: string | null, source?: AgentRequestSource): string | null {
@@ -1191,7 +1330,18 @@ class TaskManager {
 
     const [subtask] = this.listRunnableSubtasks(taskId);
     if (!subtask) throw new Error("当前没有依赖已满足的待执行子任务");
+    return this.startSubtask(task, subtask, input, actor);
+  }
 
+  /** 派发一个子任务（不检查任务是否在跑：并行时别的子任务可能正在跑）。 */
+  private startSubtask(
+    task: Task,
+    subtask: Subtask,
+    input: { agentId?: string | null; prompt?: string | null; model?: string | null; images?: string[] },
+    actor: string
+  ): SubtaskDispatchResult {
+    const taskId = task.id;
+    const summary = isPlanSummarySubtask(subtask);
     const requestedAgentId = input.agentId?.trim() || subtask.assignedAgentId || task.agentId;
     const adapter = getAdapter(requestedAgentId);
     if (!adapter) throw new Error(`未知 agent: ${requestedAgentId}`);
@@ -1208,8 +1358,9 @@ class TaskManager {
     const note = input.prompt?.trim() || "";
     // 智能多 Agent 规划确认时已经为这条子任务拼好了带技能资料的最终 prompt（subtask.plannedPrompt）；
     // 没有显式调度说明覆盖时直接用它，不再套用通用模板——保留通用模板只是给手动/本地启发式拆分兜底。
-    const prompt =
-      !note && subtask.plannedPrompt
+    const prompt = summary
+      ? this.buildPlanSummaryPrompt(task)
+      : !note && subtask.plannedPrompt
         ? subtask.plannedPrompt
         : [
             `请执行计划子任务：「${subtask.title}」。`,
@@ -1234,7 +1385,13 @@ class TaskManager {
     });
     const dispatchedSubtask = listSubtasks(taskId).find((item) => item.id === subtask.id) ?? subtask;
 
-    this.recordUserMessage(taskId, `派发子任务给 ${adapter.name}：「${subtask.title}」${note ? ` - ${note}` : ""}`, images);
+    this.recordUserMessage(
+      taskId,
+      summary
+        ? `所有子任务都完成了，交给 ${adapter.name} 汇总结果`
+        : `派发子任务给 ${adapter.name}：「${subtask.title}」${note ? ` - ${note}` : ""}`,
+      images
+    );
     emitTaskEvent({
       taskId,
       type: "log",
@@ -1276,17 +1433,58 @@ class TaskManager {
     });
     this.setStatus(taskId, "running", run.id);
 
-    const runtimeTask: Task = { ...task, agentId, agentKind: adapter.kind, model, subAgentId: null };
-    const ctx = this.createCtx(runtimeTask, run.id, prompt);
-    void adapter
-      .run(ctx, { text: prompt, images })
-      .catch((err) => {
-        ctx.log(`子任务执行异常：${(err as Error).message}`);
-        this.setStatus(taskId, "failed", run.id, (err as Error).message);
-      })
-      .finally(() => this.tryAdvanceQueue(taskId));
+    // 汇总这一轮接着主任务 Agent 的会话聊（它记得自己第一轮的统筹说明）；普通子任务各开各的会话。
+    const continueMain = summary && agentId === task.agentId && Boolean(task.sessionKey);
+    const runtimeTask: Task = summary ? task : { ...task, agentId, agentKind: adapter.kind, model, subAgentId: null };
+    const ctx = this.createCtx(runtimeTask, run.id, prompt, summary ? {} : { subtask: dispatchedSubtask, agentName: adapter.name });
+    this.launch(
+      taskId,
+      run.id,
+      adapter,
+      ctx,
+      () => (continueMain ? adapter.continueTask(ctx, { text: prompt, images }) : adapter.run(ctx, { text: prompt, images })),
+      "子任务执行异常"
+    );
 
     return { subtask: dispatchedSubtask, run, request };
+  }
+
+  /** 汇总这一轮发给主任务 Agent 的内容：用户原始需求 + 每个子任务最后的回复。 */
+  private buildPlanSummaryPrompt(task: Task): string {
+    const runs = listTaskRuns(task.id);
+    const subtasks = listSubtasks(task.id).filter((subtask) => subtask.parentSubtaskId && !isPlanSummarySubtask(subtask));
+    const sections = subtasks.map((subtask, index) => {
+      const run = runs.filter((item) => item.subtaskId === subtask.id).at(-1);
+      const agentName = getAdapter(run?.agentId ?? subtask.assignedAgentId ?? "")?.name ?? run?.agentId ?? subtask.assignedAgentId ?? "未知 Agent";
+      const reply = run ? this.lastAgentReply(run.id) : "";
+      return `### ${index + 1}. ${subtask.title}（${agentName}）\n${reply ? clipText(reply, 4000) : "（这个子任务没有留下文字结果）"}`;
+    });
+    return [
+      `用户最初的需求：${task.prompt}`,
+      `这个需求拆成了 ${subtasks.length} 个子任务，由不同 Agent 在同一个工作区里并行完成。各子任务最后的回复如下：`,
+      ...sections,
+      [
+        "现在由你作为总负责人收尾：",
+        "1. 汇总每个子任务做了什么、结果怎样；",
+        "2. 它们是同时改同一个文件夹的，可能互相覆盖或不一致，必要时直接看工作区里的文件确认，发现问题可以直接修；",
+        "3. 用简洁的中文把最终结果交给用户，并说明还需要用户做什么。",
+      ].join("\n"),
+    ].join("\n\n");
+  }
+
+  private lastAgentReply(runId: string): string {
+    const rows = db
+      .prepare("SELECT payload FROM domain_events WHERE run_id = ? AND legacy_type = 'message' ORDER BY created_at DESC")
+      .all(runId) as Array<{ payload: string }>;
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(row.payload) as { role?: string; content?: string };
+        if (payload.role === "agent" && payload.content) return payload.content;
+      } catch {
+        // 跳过坏数据
+      }
+    }
+    return "";
   }
 
   dispatchAgentHandoff(
@@ -1380,13 +1578,7 @@ class TaskManager {
 
     const runtimeTask: Task = { ...(this.getTask(taskId) ?? task), agentId, agentKind: adapter.kind, model, subAgentId: null };
     const ctx = this.createCtx(runtimeTask, run.id, prompt);
-    void adapter
-      .run(ctx, { text: prompt, images })
-      .catch((err) => {
-        ctx.log(`Agent 转交执行异常：${(err as Error).message}`);
-        this.setStatus(taskId, "failed", run.id, (err as Error).message);
-      })
-      .finally(() => this.tryAdvanceQueue(taskId));
+    this.launch(taskId, run.id, adapter, ctx, () => adapter.run(ctx, { text: prompt, images }), "Agent 转交执行异常");
   }
 
   retryTask(taskId: string, note: string | undefined, actor: string): TaskRecoveryAction {
@@ -1660,7 +1852,18 @@ class TaskManager {
     if (!task) throw new Error(`未知任务: ${taskId}`);
     const adapter = getAdapter(task.agentId);
     recordAudit({ actor, agentId: task.agentId, taskId, action: "stop_task", detail: {} });
-    if (adapter?.stop) {
+    // 停止要停全：并行子任务各自是不同的 Agent / 进程。同时暂停自动执行，不然一个停了又会派出下一个。
+    if (task.autoAdvancePlan) {
+      db.prepare("UPDATE tasks SET auto_advance_plan = 0, updated_at = ? WHERE id = ?").run(now(), taskId);
+      this.recordSystemMessage(taskId, "已停止，子任务自动执行也已暂停；要继续的话重新开启自动执行。");
+    }
+    const active = [...(this.activeRuns.get(taskId)?.entries() ?? [])];
+    if (active.length > 0) {
+      for (const [runId, entry] of active) {
+        if (entry.adapter.stop) await entry.adapter.stop(entry.ctx);
+        else this.setStatus(taskId, "stopped", runId);
+      }
+    } else if (adapter?.stop) {
       const ctx = this.createCtx(task);
       await adapter.stop(ctx);
     } else {

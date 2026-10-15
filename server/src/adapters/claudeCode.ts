@@ -8,6 +8,7 @@ import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import { cleanupTempMcpConfigFile, writeTempMcpConfigFile } from "./mcpConfigFile.ts";
 import { ASK_TIMEOUT_MS } from "./askErrors.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption, RiskLevel } from "../types.ts";
 
 // `claude --help` 里 --model 的说明："Provide an alias for the latest model (e.g. 'fable',
@@ -384,7 +385,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   }
   let mcpConfigPath: string | null = null;
   if (ctx.mcpServers.length) {
-    mcpConfigPath = writeTempMcpConfigFile(ctx.taskId, ctx.mcpServers);
+    mcpConfigPath = writeTempMcpConfigFile(runtimeKeyOf(ctx), ctx.mcpServers);
     args.push("--mcp-config", mcpConfigPath);
     ctx.log(`已挂载 MCP: ${ctx.mcpServers.map((s) => s.name).join(", ")}`);
   }
@@ -464,9 +465,9 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
     let buffer = "";
     let stoppedReason: string | null = null;
     const cleanupRunningProcess = () => {
-      if (runningClaudeCodeProcesses.get(ctx.taskId)?.child === child) runningClaudeCodeProcesses.delete(ctx.taskId);
+      if (runningClaudeCodeProcesses.get(runtimeKeyOf(ctx))?.child === child) runningClaudeCodeProcesses.delete(runtimeKeyOf(ctx));
     };
-    runningClaudeCodeProcesses.set(ctx.taskId, {
+    runningClaudeCodeProcesses.set(runtimeKeyOf(ctx), {
       child,
       kill: (reason: string) => {
         stoppedReason = reason;
@@ -558,7 +559,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`claude-code-${ctx.taskId}`);
+    ctx.setSessionKey(`claude-code-${runtimeKeyOf(ctx)}`);
     await dispatch(ctx, input, null);
   }
 
@@ -571,7 +572,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningClaudeCodeProcesses.get(ctx.taskId);
+    const running = runningClaudeCodeProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止 Claude Code 进程树...");
       running.kill("用户停止");

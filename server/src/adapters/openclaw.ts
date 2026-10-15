@@ -7,6 +7,7 @@ import { scanRisk, shouldGate } from "./riskPolicy.ts";
 import { cliAvailable, killProcessTree, resolveCliBinary, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { ModelOption } from "../types.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
@@ -145,7 +146,7 @@ async function runOpenclawWithRetry(
     }
 
     last = await runOpenclaw(args, cwd, {
-      taskId: ctx.taskId,
+      taskId: runtimeKeyOf(ctx),
       idleTimeoutMs: Math.max(0, config.openclaw.idleTimeoutSec) * 1000,
       onStderr: (chunk) => ctx.terminal(chunk),
     });
@@ -467,18 +468,18 @@ export class OpenClawAdapter implements AgentAdapter {
     // openclaw --session-key 的格式是 agent:<id>:<key>；选了具体子 agent 时按这个格式绑定，
     // 没选就维持原来的自定义 key（走默认路由）。
     const agentId = ctx.subAgentId || config.openclaw.agentId;
-    const sessionKey = agentId ? `agent:${agentId}:agenthub-${ctx.taskId}` : `agenthub:${ctx.taskId}`;
+    const sessionKey = agentId ? `agent:${agentId}:agenthub-${runtimeKeyOf(ctx)}` : `agenthub:${runtimeKeyOf(ctx)}`;
     ctx.setSessionKey(sessionKey);
     await dispatch(ctx, sessionKey, input);
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    const sessionKey = ctx.sessionKey ?? `agenthub:${ctx.taskId}`;
+    const sessionKey = ctx.sessionKey ?? `agenthub:${runtimeKeyOf(ctx)}`;
     await dispatch(ctx, sessionKey, input);
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningOpenClawProcesses.get(ctx.taskId);
+    const running = runningOpenClawProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止 OpenClaw 进程树...");
       running.kill("用户停止");

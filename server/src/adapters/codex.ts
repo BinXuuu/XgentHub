@@ -8,6 +8,7 @@ import { scanRisk, shouldGate } from "./riskPolicy.ts";
 import { cliAvailable, killProcessTree, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { FileChange, ModelOption } from "../types.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
@@ -425,9 +426,9 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
     let stoppedReason: string | null = null;
     const pendingLines: Promise<void>[] = [];
     const cleanupRunningProcess = () => {
-      if (runningCodexProcesses.get(ctx.taskId)?.child === child) runningCodexProcesses.delete(ctx.taskId);
+      if (runningCodexProcesses.get(runtimeKeyOf(ctx))?.child === child) runningCodexProcesses.delete(runtimeKeyOf(ctx));
     };
-    runningCodexProcesses.set(ctx.taskId, {
+    runningCodexProcesses.set(runtimeKeyOf(ctx), {
       child,
       kill: (reason: string) => {
         stoppedReason = reason;
@@ -540,7 +541,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningCodexProcesses.get(ctx.taskId);
+    const running = runningCodexProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止 Codex 进程树...");
       running.kill("用户停止");

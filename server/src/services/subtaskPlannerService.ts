@@ -207,5 +207,28 @@ export function createPlannedSubtasksFromPlan(task: Task, plan: MultiAgentPlan):
     created.push(rowToSubtask(db.prepare("SELECT * FROM subtasks WHERE id = ?").get(id)));
   }
 
+  // 最后统一加一个"汇总结果"：等所有分支（没有被别的子任务依赖的那些）都完成，交回给主任务的 Agent 汇总给用户。
+  // 它的 prompt 要等派发时才拼（得带上各子任务的结果），这里先放一个标记。
+  const dependedOn = new Set(plan.subtasks.flatMap((item) => item.dependsOn));
+  const sinkIds = plan.subtasks
+    .filter((item) => !dependedOn.has(item.index))
+    .map((item) => plannedIdByIndex.get(item.index))
+    .filter((value): value is string => Boolean(value));
+  const summaryId = nanoid();
+  const summaryAt = now();
+  db.prepare(
+    `INSERT INTO subtasks (id, task_id, parent_subtask_id, title, status, assigned_agent_id, dependency_ids, planned_prompt, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
+  ).run(summaryId, task.id, primary.id, PLAN_SUMMARY_TITLE, task.agentId, JSON.stringify(sinkIds), PLAN_SUMMARY_PROMPT, summaryAt, summaryAt);
+  created.push(rowToSubtask(db.prepare("SELECT * FROM subtasks WHERE id = ?").get(summaryId)));
+
   return created;
+}
+
+/** 汇总子任务的标题和 prompt 标记（真正的 prompt 在派发时根据各子任务结果现拼）。 */
+export const PLAN_SUMMARY_TITLE = "汇总结果";
+export const PLAN_SUMMARY_PROMPT = "__xgent_plan_summary__";
+
+export function isPlanSummarySubtask(subtask: Pick<Subtask, "plannedPrompt">): boolean {
+  return subtask.plannedPrompt === PLAN_SUMMARY_PROMPT;
 }

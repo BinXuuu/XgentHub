@@ -4,12 +4,14 @@ import { setupIsolatedDb, waitFor } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("adapter-stop");
 const { db } = await import("../src/db/index.ts");
+const { waitForSnapshotsIdle } = await import("../src/services/workspaceSnapshotService.ts");
 const { createWorkspace } = await import("../src/services/workspaceService.ts");
 const { taskManager } = await import("../src/services/taskManager.ts");
 const { createCustomAgent, deleteCustomAgent } = await import("../src/services/customAgentService.ts");
 const { listTaskRuns } = await import("../src/services/coreModelService.ts");
 
-after(() => {
+after(async () => {
+  await waitForSnapshotsIdle();
   db.close();
   env.cleanup();
 });
@@ -59,6 +61,66 @@ test("stopTask actually kills the underlying custom-cli child process instead of
     // 让 dispatch() 里挂着的 runCommand() promise 落地，这些都是异步的。测试结束前留点时间
     // 让它们收尾，不然 db.close() 跑在前面，close 事件里的收尾代码会摸到一个已经关闭的数据库。
     await new Promise((resolve) => setTimeout(resolve, 1500));
+  } finally {
+    deleteCustomAgent(agent.id);
+  }
+});
+
+test("stopping a task while parallel subtasks run kills every one of them (even two runs of the same agent) and does not start the summary", async () => {
+  const workspace = createWorkspace({ name: "Parallel Stop Workspace", path: env.root, allowedAgentKinds: [] });
+  const agent = createCustomAgent({
+    template: "cli",
+    name: "测试并行长时间运行 Agent",
+    command: process.execPath,
+    argsTemplate: '-e "setTimeout(() => {}, 8000)"',
+  });
+  const { listSubtasks } = await import("../src/services/coreModelService.ts");
+  const { isPlanSummarySubtask } = await import("../src/services/subtaskPlannerService.ts");
+
+  try {
+    const task = taskManager.createTask({
+      agentId: "mock",
+      workspaceId: workspace.id,
+      title: "并行停止测试",
+      prompt: "两个子任务同时跑",
+      permissionMode: "full",
+      multiAgentPlan: {
+        prompt: "两个子任务同时跑",
+        source: "llm",
+        plannerAgentId: "mock",
+        reasoning: "test",
+        warnings: [],
+        subtasks: [
+          { index: 1, title: "长任务 A", description: "", dependsOn: [], targetAgentId: agent.id, skillIds: [], prompt: "跑 A" },
+          { index: 2, title: "长任务 B", description: "", dependsOn: [], targetAgentId: agent.id, skillIds: [], prompt: "跑 B" },
+        ],
+      },
+      autoAdvancePlan: true,
+      actor: "test",
+    });
+
+    const branchRunIds = await waitFor(
+      () => {
+        const runs = listTaskRuns(task.id).filter((run) => run.agentId === agent.id && run.status === "running");
+        return runs.length === 2 ? runs.map((run) => run.id) : null;
+      },
+      { timeoutMs: 15_000, description: "both branches of the same custom agent running at once" }
+    );
+    // 给两个子进程一点时间真正 spawn 出来。
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    const startedStoppingAt = Date.now();
+    await taskManager.stopTask(task.id, "test");
+    assert.ok(Date.now() - startedStoppingAt < 4000, "两个进程都应该被直接杀掉，而不是等它们自然结束");
+
+    const runs = listTaskRuns(task.id).filter((run) => branchRunIds.includes(run.id));
+    assert.deepEqual(runs.map((run) => run.status), ["stopped", "stopped"], "同一个 Agent 的两份并行运行都要停掉，不能只停一个");
+    assert.equal(taskManager.getTask(task.id)?.status, "stopped");
+    assert.equal(taskManager.getTask(task.id)?.autoAdvancePlan, false, "停止后暂停自动执行，不再派出新的子任务");
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const summary = listSubtasks(task.id).find((subtask) => isPlanSummarySubtask(subtask))!;
+    assert.equal(listTaskRuns(task.id).some((run) => run.subtaskId === summary.id), false, "停止后不应该开始汇总");
   } finally {
     deleteCustomAgent(agent.id);
   }

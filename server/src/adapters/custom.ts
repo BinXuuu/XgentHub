@@ -4,6 +4,7 @@ import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import { cleanupTempMcpConfigFile, writeTempMcpConfigFile } from "./mcpConfigFile.ts";
 import type { ChildProcess } from "node:child_process";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
+import { runtimeKeyOf } from "./types.ts";
 import type { CustomAgentDefinition } from "../services/customAgentService.ts";
 import type { ModelOption } from "../types.ts";
 import { ASK_TIMEOUT_SEC, cliAskError, httpAskError, networkAskError } from "./askErrors.ts";
@@ -290,7 +291,7 @@ export class CustomApiAdapter implements AgentAdapter {
     }
     if (input.images.length) ctx.log(`自定义 API Agent 暂不支持图片附件，已忽略 ${input.images.length} 张图片`);
 
-    const key = `${this.id}:${ctx.taskId}`;
+    const key = `${this.id}:${runtimeKeyOf(ctx)}`;
     const history = apiConversations.get(key) ?? [
       {
         role: "system",
@@ -356,7 +357,7 @@ export class CustomApiAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    ctx.setSessionKey(`${this.id}:${ctx.taskId}`);
+    ctx.setSessionKey(`${this.id}:${runtimeKeyOf(ctx)}`);
     await this.dispatch(ctx, input);
   }
 
@@ -385,7 +386,7 @@ export class CustomApiAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const key = `${this.id}:${ctx.taskId}`;
+    const key = `${this.id}:${runtimeKeyOf(ctx)}`;
     const controller = runningCustomApiRequests.get(key);
     if (controller) {
       ctx.log("正在终止自定义 API Agent 请求...");
@@ -483,13 +484,13 @@ export class CustomCliAdapter implements AgentAdapter {
     const prompt = spec.workspacePrompt
       ? buildWorkspacePrompt(ctx.workspacePath, input.text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths)
       : input.text;
-    const session = ctx.sessionKey || `${this.id}:${ctx.taskId}`;
+    const session = ctx.sessionKey || `${this.id}:${runtimeKeyOf(ctx)}`;
     const model = ctx.model || spec.defaultModel || "";
     const extraDirs = additionalWorkspaceDirs(ctx);
     // 只有用户自己填了 mcpArgTemplate，才说明这个自定义 CLI 真的支持按文件传 MCP 配置——
     // 格式沿用 Claude Code 的 {"mcpServers": {...}}，这是目前最通用的约定。跟 modelArgTemplate
     // 一样，调用结束（成功/失败/停止都算）就删，不留在磁盘上。
-    const mcpConfigPath = ctx.mcpServers.length && spec.mcpArgTemplate?.trim() ? writeTempMcpConfigFile(ctx.taskId, ctx.mcpServers) : null;
+    const mcpConfigPath = ctx.mcpServers.length && spec.mcpArgTemplate?.trim() ? writeTempMcpConfigFile(runtimeKeyOf(ctx), ctx.mcpServers) : null;
     const templateValues = {
       prompt,
       rawPrompt: input.text,
@@ -524,9 +525,9 @@ export class CustomCliAdapter implements AgentAdapter {
         ctx.workspacePath,
         spec.timeoutSec || 900,
         stdinText,
-        (_child, kill) => runningCustomCliProcesses.set(ctx.taskId, { kill })
+        (_child, kill) => runningCustomCliProcesses.set(runtimeKeyOf(ctx), { kill })
       );
-      runningCustomCliProcesses.delete(ctx.taskId);
+      runningCustomCliProcesses.delete(runtimeKeyOf(ctx));
       if (stoppedReason) {
         ctx.log(`自定义 CLI 进程已停止：${stoppedReason}`);
         return;
@@ -540,7 +541,7 @@ export class CustomCliAdapter implements AgentAdapter {
       ctx.agentMessage(parseCliOutput(stdout, stderr, spec.outputMode));
       ctx.setStatus("review");
     } catch (err) {
-      runningCustomCliProcesses.delete(ctx.taskId);
+      runningCustomCliProcesses.delete(runtimeKeyOf(ctx));
       ctx.agentMessage(`自定义 CLI Agent 无法启动：${(err as Error).message}`);
       ctx.setStatus("failed");
     } finally {
@@ -557,7 +558,7 @@ export class CustomCliAdapter implements AgentAdapter {
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningCustomCliProcesses.get(ctx.taskId);
+    const running = runningCustomCliProcesses.get(runtimeKeyOf(ctx));
     if (running) {
       ctx.log("正在终止自定义 CLI 进程树...");
       running.kill("用户停止");
