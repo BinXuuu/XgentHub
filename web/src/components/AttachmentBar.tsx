@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { uploadImageFiles } from "../utils/attachments";
+import { errorDialog } from "../utils/dialog";
 
 function basename(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
@@ -38,7 +39,7 @@ export const AttachmentButton = forwardRef<AttachmentButtonHandle, ButtonProps>(
       const uploaded = await uploadImageFiles(list);
       onChange(uploaded);
     } catch (err) {
-      alert(`上传图片失败：${(err as Error).message}`);
+      void errorDialog(err, "上传图片失败");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";

@@ -288,3 +288,49 @@ test("setAutoAdvancePlan pauses and resumes auto-dispatch without touching the c
     { timeoutMs: 10_000, description: "subtask B auto-dispatched and finished after resuming" }
   );
 });
+
+test("a subtask that depends on another one receives that subtask's last reply in its instructions", async () => {
+  const workspace = createWorkspace({ name: "Upstream Results Workspace", path: env.root, allowedAgentKinds: ["mock"] });
+  const task = taskManager.createTask({
+    agentId: "mock",
+    workspaceId: workspace.id,
+    title: "上游结果传递测试",
+    prompt: "先定方案，再按方案做",
+    permissionMode: "full",
+    multiAgentPlan: {
+      prompt: "先定方案，再按方案做",
+      source: "llm",
+      plannerAgentId: "mock",
+      reasoning: "test",
+      warnings: [],
+      subtasks: [
+        { index: 1, title: "定方案", description: "", dependsOn: [], targetAgentId: "mock", skillIds: [], prompt: "只定方案" },
+        { index: 2, title: "按方案做", description: "", dependsOn: [1], targetAgentId: "mock", skillIds: [], prompt: "按前面定好的方案做" },
+      ],
+    },
+    autoAdvancePlan: true,
+    actor: "test",
+  });
+
+  // "按方案做"那一轮 mock 收到的完整指令会记在日志里（"收到任务：..."）。
+  const received = await waitFor(
+    () =>
+      taskManager
+        .listEvents(task.id)
+        .map((event) => String(event.payload?.message ?? ""))
+        .find((message) => message.startsWith("收到任务：按前面定好的方案做")) ?? null,
+    { timeoutMs: 15_000, description: "dependent subtask dispatched" }
+  );
+  assert.match(received, /这一步依赖前面的子任务/);
+  assert.match(received, /### 定方案（Mock Agent）\n任务完成：代码已修改、测试通过并推送。/);
+  assert.doesNotMatch(received, /【定方案 · Mock Agent】/, "对话里加的标签不应该带进指令");
+
+  // 没有依赖的子任务不附加这一段。
+  const first = taskManager
+    .listEvents(task.id)
+    .map((event) => String(event.payload?.message ?? ""))
+    .find((message) => message.startsWith("收到任务：只定方案"));
+  assert.ok(first && !first.includes("这一步依赖前面的子任务"));
+
+  await waitFor(() => (taskManager.getTask(task.id)?.status === "review" ? true : null), { timeoutMs: 15_000, description: "task finishes" });
+});

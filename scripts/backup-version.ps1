@@ -38,7 +38,8 @@ $excludeDirs = @(
   "logs",
   "backups",
   "attachments",
-  ".git"
+  ".git",
+  "XgentHub-opensource"
 )
 $excludeFiles = @(
   ".env",

@@ -7,6 +7,8 @@ import { AttachmentButton, AttachmentChips, type AttachmentButtonHandle } from "
 import { extractImageFiles } from "../../utils/attachments";
 import { QueuePanel } from "./QueuePanel";
 import { RoleMemoryProposals } from "../RoleMemoryProposals";
+import { alertDialog, confirmDialog, errorDialog, promptDialog } from "../../utils/dialog";
+import { AgentText } from "../AgentText";
 
 interface Props {
   taskId: string;
@@ -85,7 +87,7 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
       const preview = await api.previewSnapshotRestore(taskId, snapshot.id);
       const total = preview.restore.length + preview.remove.length + preview.recreate.length;
       if (total === 0) {
-        alert("工作区文件和那时一样，没有需要撤回的改动。");
+        void alertDialog("工作区文件和那时一样，没有需要撤回的改动。", { title: "不需要撤回" });
         return;
       }
       const sample = (label: string, files: string[]) =>
@@ -97,12 +99,12 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
       const detail = [sample("还原", preview.restore), sample("删除新增的", preview.remove), sample("恢复被删的", preview.recreate)]
         .filter(Boolean)
         .join("\n");
-      if (!window.confirm(`${intro}\n\n${detail}\n\n撤回前的状态会自动保存，之后还能恢复。`)) return;
+      if (!(await confirmDialog(`${detail}\n\n撤回前的状态会自动保存，之后还能恢复。`, { title: intro, confirmText: "撤回" }))) return;
       await api.restoreSnapshot(taskId, snapshot.id);
       setSnapshots(await api.listTaskSnapshots(taskId));
       onMessageSent?.();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setRestoringId(null);
     }
@@ -110,13 +112,13 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
 
   async function rememberMessage(content: string) {
     if (!role) return;
-    const text = window.prompt(`存为「${role.name}」的长期记忆（以后每一轮都会带给它，可以先精简一下）：`, content.slice(0, 500));
+    const text = await promptDialog("以后每一轮都会带给它，可以先精简一下。", { title: `存为「${role.name}」的长期记忆`, defaultValue: content.slice(0, 500), confirmText: "保存" });
     if (!text?.trim()) return;
     try {
       await api.addRoleMemory(role.roleId, { content: text.trim(), source: "message", taskId });
-      alert(`已存为「${role.name}」的记忆。`);
+      void alertDialog(`已存为「${role.name}」的记忆。`, { tone: "success", title: "已保存" });
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 
@@ -197,7 +199,7 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
       setSpeechError("当前浏览器不支持语音输入");
-      alert("当前浏览器不支持语音输入。建议用 Chrome / Edge，或后续接入本地 Whisper。");
+      void alertDialog("当前浏览器不支持语音输入。建议用 Chrome / Edge，或后续接入本地 Whisper。", { title: "用不了语音输入" });
       return;
     }
     setSpeechError(null);
@@ -251,7 +253,7 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
       setImages([]);
       onMessageSent?.();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setSending(false);
     }
@@ -266,7 +268,7 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
       setImages([]);
       onMessageSent?.();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setSending(false);
     }
@@ -300,7 +302,7 @@ export function ChatTab({ taskId, messages, queue, status, onMessageSent, planMo
                   </button>
                 )}
               </div>
-              {m.content && <div>{m.content}</div>}
+              {m.content && (m.role === "agent" ? <AgentText text={m.content} /> : <div>{m.content}</div>)}
               {renderedImages.length > 0 && (
                 <div className="chat-attachments">
                   {renderedImages.map((img, index) => (

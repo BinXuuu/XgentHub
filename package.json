@@ -1,7 +1,7 @@
 {
   "name": "agenthub",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "本机多 Agent 运行时控制台（Codex / Claude Code / OpenClaw / Hermes 等）",
   "license": "AGPL-3.0-only",
   "workspaces": [

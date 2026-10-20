@@ -599,6 +599,10 @@ class TaskManager {
         if (!subtaskRun) db.prepare("UPDATE tasks SET session_key = ? WHERE id = ?").run(sessionKey, task.id);
         syncRunSessionKey(task.id, sessionKey, runId);
       },
+      reportModel: (model: string) => {
+        if (!runId || !model.trim() || !taskStillExists()) return;
+        db.prepare("UPDATE task_runs SET model = ? WHERE id = ? AND (model IS NULL OR model = '')").run(model.trim(), runId);
+      },
     };
   }
 
@@ -1358,7 +1362,7 @@ class TaskManager {
     const note = input.prompt?.trim() || "";
     // 智能多 Agent 规划确认时已经为这条子任务拼好了带技能资料的最终 prompt（subtask.plannedPrompt）；
     // 没有显式调度说明覆盖时直接用它，不再套用通用模板——保留通用模板只是给手动/本地启发式拆分兜底。
-    const prompt = summary
+    const basePrompt = summary
       ? this.buildPlanSummaryPrompt(task)
       : !note && subtask.plannedPrompt
         ? subtask.plannedPrompt
@@ -1368,6 +1372,8 @@ class TaskManager {
             "请结合当前任务上下文，只处理这个子任务范围；完成后说明结果、产物和需要复核的点。",
             `原始任务：${task.prompt}`,
           ].filter(Boolean).join("\n\n");
+    // 依赖前面子任务的，把它们的最后回复附上：前一步的成果如果只写在回复里（没落成文件），后一步也能接着用。
+    const prompt = summary ? basePrompt : this.withUpstreamResults(task, subtask, basePrompt);
     const images = input.images ?? [];
     const model = input.model?.trim() || (agentId === task.agentId ? task.model : null);
 
@@ -1450,15 +1456,32 @@ class TaskManager {
   }
 
   /** 汇总这一轮发给主任务 Agent 的内容：用户原始需求 + 每个子任务最后的回复。 */
+  /** 一个子任务的结果段落：标题、哪个 Agent 做的、它最后的回复（去掉对话里加的【子任务 · Agent】标签）。 */
+  private subtaskResultSection(task: Task, subtask: Subtask, heading: string, maxChars: number): string {
+    const run = listTaskRuns(task.id).filter((item) => item.subtaskId === subtask.id).at(-1);
+    const agentName = getAdapter(run?.agentId ?? subtask.assignedAgentId ?? "")?.name ?? run?.agentId ?? subtask.assignedAgentId ?? "未知 Agent";
+    const reply = run ? this.lastAgentReply(run.id).replace(/^【[^】\n]*】\n/, "").trim() : "";
+    return `### ${heading}（${agentName}）\n${reply ? clipText(reply, maxChars) : "（这个子任务没有留下文字结果，成果可能直接在工作区的文件里）"}`;
+  }
+
+  private withUpstreamResults(task: Task, subtask: Subtask, prompt: string): string {
+    if (subtask.dependencyIds.length === 0) return prompt;
+    const all = listSubtasks(task.id);
+    const upstream = subtask.dependencyIds
+      .map((id) => all.find((item) => item.id === id))
+      .filter((item): item is Subtask => Boolean(item));
+    if (upstream.length === 0) return prompt;
+    return [
+      prompt,
+      "---",
+      "这一步依赖前面的子任务，下面是它们完成后最后的回复（成果也可能已经写在工作区的文件里，需要时自己去看）：",
+      ...upstream.map((item) => this.subtaskResultSection(task, item, item.title, 3000)),
+    ].join("\n\n");
+  }
+
   private buildPlanSummaryPrompt(task: Task): string {
-    const runs = listTaskRuns(task.id);
     const subtasks = listSubtasks(task.id).filter((subtask) => subtask.parentSubtaskId && !isPlanSummarySubtask(subtask));
-    const sections = subtasks.map((subtask, index) => {
-      const run = runs.filter((item) => item.subtaskId === subtask.id).at(-1);
-      const agentName = getAdapter(run?.agentId ?? subtask.assignedAgentId ?? "")?.name ?? run?.agentId ?? subtask.assignedAgentId ?? "未知 Agent";
-      const reply = run ? this.lastAgentReply(run.id) : "";
-      return `### ${index + 1}. ${subtask.title}（${agentName}）\n${reply ? clipText(reply, 4000) : "（这个子任务没有留下文字结果）"}`;
-    });
+    const sections = subtasks.map((subtask, index) => this.subtaskResultSection(task, subtask, `${index + 1}. ${subtask.title}`, 4000));
     return [
       `用户最初的需求：${task.prompt}`,
       `这个需求拆成了 ${subtasks.length} 个子任务，由不同 Agent 在同一个工作区里并行完成。各子任务最后的回复如下：`,

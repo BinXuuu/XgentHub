@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { AgentDescriptor, AgentKind, AgentRole, Host, Workspace } from "../api/types";
 import { api } from "../api/client";
+import { confirmDialog, errorDialog } from "../utils/dialog";
 
 const AGENT_COLORS: Record<AgentKind, string> = {
   mock: "#6b7280",
@@ -336,12 +337,12 @@ export function Sidebar({
   }
 
   async function remove(w: Workspace) {
-    if (!confirm(`删除工作区"${w.name}"？它下面的任务记录也会一并删除，本机文件不受影响。`)) return;
+    if (!(await confirmDialog("它下面的任务记录也会一并删除，本机文件不受影响。", { title: `删除工作区「${w.name}」？`, danger: true }))) return;
     try {
       await api.deleteWorkspace(w.id);
       onWorkspacesChanged();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 

@@ -43,7 +43,7 @@ try {
   $progressFileName = [string]::Concat([char]0x9879, [char]0x76ee, [char]0x8fdb, [char]0x5ea6, ".txt")
   # server\data holds this machine's runtime data: database, MCP tokens, custom agent API keys,
   # undo snapshot repos (copies of workspace code), usage caches. Never ship it; install.bat recreates defaults.
-  $excludeDirs = @("node_modules", "logs", "backups", ".git", ".github", "attachments", "docs", "installer", ".codex-runtime", (Join-Path $Root "server\data"))
+  $excludeDirs = @("node_modules", "logs", "backups", ".git", ".github", "XgentHub-opensource", "attachments", "docs", "installer", ".codex-runtime", (Join-Path $Root "server\data"))
   $excludeFiles = @(
     ".env",
     "*.sqlite",

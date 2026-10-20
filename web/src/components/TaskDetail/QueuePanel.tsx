@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { QueuedMessage } from "../../api/types";
 import { api } from "../../api/client";
+import { errorDialog } from "../../utils/dialog";
 
 interface Props {
   taskId: string;
@@ -17,7 +18,7 @@ export function QueuePanel({ taskId, items }: Props) {
     try {
       await api.removeQueueItem(taskId, id);
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 
@@ -31,7 +32,7 @@ export function QueuePanel({ taskId, items }: Props) {
     try {
       await api.reorderQueue(taskId, ids);
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 

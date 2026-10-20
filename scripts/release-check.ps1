@@ -62,6 +62,7 @@ try {
   Assert-ZipDoesNotContain $entries { $_ -like "server/data/attachments/*" -or $_ -like "*/server/data/attachments/*" } "attachments"
   Assert-ZipDoesNotContain $entries { $_ -like "server/data/*" -or $_ -like "*/server/data/*" } "server/data (MCP tokens, API keys, snapshots)"
   Assert-ZipDoesNotContain $entries { $_ -like ".codex-runtime/*" -or $_ -like "*/.codex-runtime/*" } ".codex-runtime"
+  Assert-ZipDoesNotContain $entries { $_ -like "XgentHub-opensource/*" -or $_ -like "*/XgentHub-opensource/*" } "open-source export copy"
   $progressFileName = [string]::Concat([char]0x9879, [char]0x76ee, [char]0x8fdb, [char]0x5ea6, ".txt")
   Assert-ZipDoesNotContain $entries { (Split-Path $_ -Leaf) -eq $progressFileName } "development progress log"
   Assert-ZipDoesNotContain $entries { $_ -like "docs/*" -or $_ -like "*/docs/*" } "development docs"
@@ -98,6 +99,8 @@ try {
     "manage-shortcuts.bat",
     "scripts/agenthub.ps1",
     "scripts/doctor.ps1",
+    "scripts/update-agenthub.ps1",
+    "CHANGELOG.md",
     "scripts/install-agenthub.ps1",
     "scripts/export-config.ps1",
     "scripts/import-config.ps1",
@@ -118,7 +121,7 @@ try {
     zipPath = $ZipPath
     entryCount = $entries.Count
     requiredFilesChecked = $requiredFiles.Count
-    forbiddenPatternsChecked = 12
+    forbiddenPatternsChecked = 13
   }
   $reportPath = Join-Path $OutputDir "$Name.release-check.json"
   $report | ConvertTo-Json -Depth 10 | Set-Content -Path $reportPath -Encoding UTF8

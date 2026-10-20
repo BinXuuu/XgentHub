@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { RoleMemory } from "../api/types";
+import { errorDialog } from "../utils/dialog";
 
 interface Props {
   roleId: string;
@@ -28,7 +29,7 @@ export function RoleMemoryProposals({ roleId, roleName, refreshKey }: Props) {
       else await api.deleteRoleMemory(roleId, memory.id);
       setPending((items) => items.filter((item) => item.id !== memory.id));
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setBusyId(null);
     }

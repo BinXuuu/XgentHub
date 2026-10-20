@@ -172,6 +172,8 @@ function createLineHandler(ctx: TaskRuntimeContext) {
       const evt = JSON.parse(trimmed);
       if (typeof evt?.session_id === "string" && evt.session_id) ctx.setSessionKey(evt.session_id);
       const type = evt?.type;
+      // 启动事件里带着这次实际用的模型（没选模型时就是 Claude Code 自己的默认模型）。
+      if (type === "system" && evt.subtype === "init" && typeof evt.model === "string" && evt.model) ctx.reportModel?.(evt.model);
       if (type === "assistant" || type === "message") {
         const content = evt.message?.content ?? evt.content;
         if (Array.isArray(content)) {

@@ -12,7 +12,9 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import type { TaskStatus } from "../api/types";
+import { api } from "../api/client";
+import type { TaskStatus, UpdateInfo } from "../api/types";
+import { UpdateCenter } from "./UpdateCenter";
 import { applyTheme, persistTheme, readStoredTheme, type ThemeMode } from "../utils/theme";
 
 export type NavView = "dashboard" | "chats" | "tasks" | "agents" | "knowledge" | "skills" | "tools" | "mcp";
@@ -44,6 +46,30 @@ export function NavRail({ activeView, onViewChange, taskCounts }: Props) {
   }, [theme]);
 
   const approvalCount = taskCounts.needs_approval ?? 0;
+
+  // 版本与在线更新：打开时查一次，之后每 6 小时查一次（服务端也有 6 小时缓存，不会频繁请求 GitHub）。
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [showUpdate, setShowUpdate] = useState(false);
+
+  async function checkUpdate(force = false) {
+    setCheckingUpdate(true);
+    try {
+      setUpdateInfo(await api.getUpdateInfo(force));
+    } catch {
+      // 查不到就先不显示新版本提示
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  useEffect(() => {
+    void checkUpdate();
+    const timer = window.setInterval(() => void checkUpdate(), 6 * 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const hasUpdate = Boolean(updateInfo?.available && updateInfo.mode !== "dev");
 
   function getRunningBadge(id: NavView): boolean {
     return id === "tasks" && runningCount > 0 && approvalCount === 0;
@@ -87,6 +113,16 @@ export function NavRail({ activeView, onViewChange, taskCounts }: Props) {
       <div className="nav-rail-spacer" />
 
       <button
+        className={`nav-rail-version ${hasUpdate ? "has-update" : ""}`}
+        type="button"
+        onClick={() => setShowUpdate(true)}
+        title={hasUpdate ? `有新版本 v${updateInfo?.latestVersion}，点开更新` : "版本与更新"}
+      >
+        {updateInfo ? `v${updateInfo.currentVersion}` : "版本"}
+        {hasUpdate && <span className="nav-badge nav-badge-update" />}
+      </button>
+
+      <button
         className="nav-rail-theme-toggle"
         type="button"
         onClick={toggleTheme}
@@ -98,6 +134,10 @@ export function NavRail({ activeView, onViewChange, taskCounts }: Props) {
         </span>
         <span className="nav-label">{theme === "dark" ? "亮色" : "暗色"}</span>
       </button>
+
+      {showUpdate && (
+        <UpdateCenter info={updateInfo} checking={checkingUpdate} onCheck={() => void checkUpdate(true)} onClose={() => setShowUpdate(false)} />
+      )}
     </nav>
   );
 }

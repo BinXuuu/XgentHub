@@ -10201,3 +10201,405 @@ select.field:focus {
     flex: 1 1 0;
   }
 }
+
+/* 应用内确认 / 提示 / 输入弹窗（utils/dialog.ts + components/DialogHost.tsx），替代系统 confirm / alert / prompt */
+.app-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  animation: app-dialog-fade 0.12s ease-out;
+}
+.app-dialog {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
+  padding: 20px 20px 16px;
+  animation: app-dialog-pop 0.14s ease-out;
+}
+.app-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.app-dialog-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+}
+.app-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.app-dialog.tone-danger .app-dialog-icon,
+.app-dialog.tone-error .app-dialog-icon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.app-dialog.tone-success .app-dialog-icon {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+.app-dialog-message {
+  margin-left: 42px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-dialog-input {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  resize: vertical;
+  min-height: 84px;
+  font: inherit;
+  font-size: 13px;
+}
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.app-dialog-actions .btn {
+  min-width: 76px;
+}
+/* 选择器带上 .app-dialog，压过亮色主题里 [data-theme="light"] .btn 的白底 */
+.app-dialog .app-dialog-danger,
+[data-theme="light"] .app-dialog .app-dialog-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.app-dialog .app-dialog-danger:hover:not(:disabled),
+[data-theme="light"] .app-dialog .app-dialog-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, #000);
+  border-color: color-mix(in srgb, var(--danger) 88%, #000);
+}
+@keyframes app-dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes app-dialog-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+@media (max-width: 520px) {
+  .app-dialog {
+    max-width: none;
+  }
+  .app-dialog-message {
+    margin-left: 0;
+  }
+  .app-dialog-actions .btn {
+    flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-dialog-overlay,
+  .app-dialog {
+    animation: none;
+  }
+}
+
+/* 版本与在线更新（components/UpdateCenter.tsx） */
+.nav-rail-version {
+  position: relative;
+  width: 56px;
+  padding: 4px 2px;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-faint, var(--text-dim));
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.nav-rail-version:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.nav-rail-version.has-update {
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav-badge-update {
+  top: 0;
+  right: 6px;
+  width: 8px;
+  min-width: 8px;
+  height: 8px;
+  padding: 0;
+}
+.update-center-overlay {
+  align-items: center;
+  z-index: 900;
+}
+.update-center {
+  max-width: 480px;
+}
+.update-center-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.update-center-head h2 {
+  margin: 0;
+}
+.update-center-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0;
+}
+.update-center-versions > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.update-center-versions span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.update-center-versions strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.update-notes {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+.update-notes strong {
+  font-size: 13px;
+}
+.update-notes pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.update-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.update-note.ok {
+  color: var(--success);
+}
+.update-note.error {
+  color: var(--danger);
+}
+.update-meta {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.update-progress {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.update-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.update-progress-title.ok {
+  color: var(--success);
+}
+.update-progress-title.error {
+  color: var(--danger);
+}
+.update-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.update-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+.update-progress-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.update-center .modal-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.spin {
+  animation: xgent-spin 0.9s linear infinite;
+}
+@keyframes xgent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 520px) {
+  .update-center-versions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Agent 回复的 Markdown（components/Markdown.tsx） */
+.md {
+  white-space: normal;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 8px;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 14px 0 6px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.md h1 {
+  font-size: 1.25em;
+}
+.md h2 {
+  font-size: 1.15em;
+}
+.md h3,
+.md h4 {
+  font-size: 1.05em;
+}
+.md ul,
+.md ol {
+  margin: 0 0 8px;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 2px 0;
+}
+.md li > p {
+  margin: 0;
+}
+.md input[type="checkbox"] {
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md strong {
+  font-weight: 650;
+}
+.md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+.md pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow-x: auto;
+  white-space: pre;
+}
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.md blockquote {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+.md hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.md-table-wrap {
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.md th,
+.md td {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-weight: 600;
+}
+.md-fallback {
+  white-space: pre-wrap;
+}

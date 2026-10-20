@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../api/client";
 import { fileToKnowledgeEntries, IMPORTABLE_EXTENSIONS, isImportableFile } from "../utils/knowledgeImport";
+import { confirmDialog } from "../utils/dialog";
 import type {
   KnowledgeEntry,
   KnowledgeGroup,
@@ -244,7 +245,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   async function removeGroup(group: KnowledgeGroup) {
     const usedBy = workspaces.filter((workspace) => workspace.knowledgeGroupIds.includes(group.id));
     const usageNote = usedBy.length ? `正在被 ${usedBy.map((workspace) => `「${workspace.name}」`).join("、")} 使用，删除后这些工作区不再引用它。` : "";
-    if (!confirm(`删除知识组"${group.name}"和它下面的 ${group.entryCount} 条知识？${usageNote}此操作不能撤销。`)) return;
+    if (!(await confirmDialog(`它下面的 ${group.entryCount} 条知识会一起删除。${usageNote}此操作不能撤销。`, { title: `删除知识组「${group.name}」？`, danger: true }))) return;
     setError(null);
     try {
       await api.deleteKnowledgeGroup(group.id);
@@ -385,7 +386,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   async function deleteMcpServerItem(item: McpServerDefinition) {
     const refs = describeMcpUsage(item.usage);
     const usageNote = refs.length ? `目前被 ${refs.join("、")} 引用，删除后会从这些地方一起去掉。` : "目前没有工作区、角色或聊天在用它。";
-    if (!confirm(`删除 MCP server"${item.name}"？${usageNote}`)) return;
+    if (!(await confirmDialog(usageNote || "删除后用到它的地方会自动去掉。", { title: `删除 MCP「${item.name}」？`, danger: true }))) return;
     setError(null);
     try {
       await api.deleteMcpServer(item.id);
@@ -528,7 +529,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   }
 
   async function deleteKnowledge(entry: KnowledgeEntry) {
-    if (!confirm(`删除知识条目"${entry.title}"？`)) return;
+    if (!(await confirmDialog("此操作不能撤销。", { title: `删除知识条目「${entry.title}」？`, danger: true }))) return;
     setError(null);
     try {
       await api.deleteKnowledge(entry.id);
@@ -540,7 +541,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   }
 
   async function deleteLibraryItem(item: ResourceLibraryItem) {
-    if (!confirm(`删除${mode === "skills" ? "Skill" : "工具"}"${item.title}"？`)) return;
+    if (!(await confirmDialog("删除后用到它的地方会自动去掉。", { title: `删除${mode === "skills" ? "Skill" : "工具"}「${item.title}」？`, danger: true }))) return;
     setError(null);
     try {
       await api.deleteResourceLibraryItem(item.kind, item.id);

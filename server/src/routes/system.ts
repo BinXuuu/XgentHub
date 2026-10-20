@@ -19,8 +19,25 @@ import {
   uninstallStartupTask,
 } from "../services/systemService.ts";
 import type { ConfigImportInput, MachineConfigApplyInput, SystemPathInput } from "../types.ts";
+import { checkForUpdate, readUpdateStatus, startUpdate } from "../services/updateService.ts";
 
 export function registerSystemRoutes(app: FastifyInstance) {
+  // 在线更新：查新版本（?force=1 跳过 6 小时缓存）、开始更新、看更新进度（服务重启前后都能读到）。
+  app.get<{ Querystring: { force?: string } }>("/api/system/update", { preHandler: requireAuth }, async (request) => {
+    return checkForUpdate(request.query.force === "1");
+  });
+  app.post("/api/system/update", { preHandler: requireAuth }, async (_request, reply) => {
+    try {
+      return await startUpdate();
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+  app.get("/api/system/update/status", { preHandler: requireAuth }, async () => {
+    return readUpdateStatus() ?? { state: "idle" };
+  });
+
   app.post("/api/system/doctor", { preHandler: requireAuth }, async () => {
     return runDoctor();
   });

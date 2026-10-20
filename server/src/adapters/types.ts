@@ -63,6 +63,11 @@ export interface TaskRuntimeContext {
 
   setStatus(status: "running" | "needs_approval" | "review" | "done" | "failed" | "stopped"): void;
   setSessionKey(sessionKey: string): void;
+  /**
+   * 没指定模型时，Agent 用的是它自己 CLI 的默认模型，我们事先不知道是哪个。Agent 启动后报告实际用的模型，
+   * 记进这次运行（只在原来没记模型时才写），流程图等地方就能显示真实的模型名。
+   */
+  reportModel?(model: string): void;
 }
 
 /** 一轮对话的输入：文本 + 可选的图片附件（本机绝对路径）。 */

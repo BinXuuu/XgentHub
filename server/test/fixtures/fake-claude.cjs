@@ -36,7 +36,7 @@ process.stdin.on("data", (chunk) => {
     const msg = JSON.parse(line);
     if (msg.type === "user" && !started) {
       started = true;
-      out({ type: "system", subtype: "init", session_id: "fake-session" });
+      out({ type: "system", subtype: "init", session_id: "fake-session", model: "claude-fake-default" });
       out({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_1", name: "PowerShell", input: TOOL_INPUT }] } });
       out({
         type: "control_request",

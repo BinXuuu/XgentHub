@@ -903,3 +903,26 @@ export interface TaskReviewDecision {
   note: string | null;
   createdAt: string;
 }
+
+export interface UpdateInfo {
+  repo: string;
+  currentVersion: string;
+  latestVersion: string | null;
+  latestTag: string | null;
+  available: boolean;
+  notes: string;
+  mode: "archive" | "git" | "dev";
+  modeReason: string | null;
+  checkedAt: string;
+  error: string | null;
+}
+
+export interface UpdateStatus {
+  state: "idle" | "running" | "done" | "failed";
+  step?: string;
+  fromVersion?: string;
+  toVersion?: string;
+  error?: string;
+  updatedAt?: string;
+  log?: string;
+}

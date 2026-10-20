@@ -29,6 +29,8 @@ import type {
   OnboardingOverview,
   PermissionMode,
   PostInstallStatus,
+  UpdateInfo,
+  UpdateStatus,
   RemoteAccessStatus,
   ResourceLibraryItem,
   ResourceLibraryKind,
@@ -355,6 +357,9 @@ export const api = {
   applyMachineConfig: (input: MachineConfigApplyInput) =>
     request<MachineConfigApplyResult>("/system/machine-config-apply", { method: "POST", body: JSON.stringify(input) }),
   getPostInstallStatus: () => request<PostInstallStatus>("/system/post-install"),
+  getUpdateInfo: (force = false) => request<UpdateInfo>(`/system/update${force ? "?force=1" : ""}`),
+  startUpdate: () => request<{ started: true; fromVersion: string; toVersion: string }>("/system/update", { method: "POST" }),
+  getUpdateStatus: () => request<UpdateStatus>("/system/update/status"),
   getRemoteAccessStatus: () => request<RemoteAccessStatus>("/system/remote-access"),
   restartAgentHub: () => request<SystemCommandResult>("/system/restart", { method: "POST", body: JSON.stringify({}) }),
   openSystemPath: (input: SystemPathInput) => request<SystemCommandResult>("/system/open-path", { method: "POST", body: JSON.stringify(input) }),

@@ -84,6 +84,10 @@ test("请求批准: Claude Code waits in the approval queue, task shows needs_ap
   });
   assert.deepEqual(files.map((file) => [file.path, file.action]), [["out-dir/result.txt", "created"]]);
   assert.match(taskManager.getDiff(task.id), /\+hello/);
+
+  // 没选模型时，Claude Code 启动事件里报的实际模型会记进这次运行，流程图上能显示具体模型名。
+  const { listTaskRuns } = await import("../src/services/coreModelService.ts");
+  assert.equal(listTaskRuns(task.id).at(-1)?.model, "claude-fake-default");
 });
 
 test("denying sends the reason back to Claude Code and nothing runs", async () => {

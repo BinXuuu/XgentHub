@@ -29,6 +29,7 @@ import { MemoryTab } from "./MemoryTab";
 import { RecoveryTab } from "./RecoveryTab";
 import { ReviewTab } from "./ReviewTab";
 import { ResourcesTab } from "./ResourcesTab";
+import { alertDialog, confirmDialog, errorDialog } from "../../utils/dialog";
 
 // 流程图（@xyflow/react，约 150KB）只有点开「流程」标签才下载，不拖慢首屏。
 const FlowTab = lazy(() => import("./FlowTab").then((module) => ({ default: module.FlowTab })));
@@ -335,7 +336,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       await api.stopTask(taskId);
       refreshLiveState();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setStopping(false);
     }
@@ -349,7 +350,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       setTask(updated);
       onTaskChanged();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setTogglingAutoAdvance(false);
     }
@@ -364,7 +365,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
     try {
       setModelOptions(await api.listModels(agentDescriptor.id));
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setLoadingModelOptions(false);
     }
@@ -376,7 +377,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
     try {
       setModelOptions(await api.listModels(agentDescriptor.id, true));
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setLoadingModelOptions(false);
     }
@@ -391,7 +392,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       onTaskChanged();
       setShowModelSwitch(false);
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setSavingModel(false);
     }
@@ -467,7 +468,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       void refreshRecoveryActions();
       setTab("recovery");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setRetrying(false);
     }
@@ -485,7 +486,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       void refreshRecoveryActions();
       setTab("recovery");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setHandoffing(false);
     }
@@ -536,7 +537,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       setShowAgentHandoff(false);
       setTab("flow");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setDispatchingAgentHandoff(false);
     }
@@ -572,7 +573,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       setShowSubtaskDispatch(false);
       setTab("flow");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setDispatchingSubtask(false);
     }
@@ -591,7 +592,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       void refreshReviewDecisions();
       setTab("review");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setApprovingReview(false);
     }
@@ -599,7 +600,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
 
   async function requestChanges(note: string) {
     if (!note) {
-      alert("请填写要求修改说明");
+      void alertDialog("写清楚哪里需要修改，Agent 会按这条意见继续改。", { title: "还没填修改说明" });
       return;
     }
     setRequestingChanges(true);
@@ -614,7 +615,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       void refreshReviewDecisions();
       setTab("review");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setRequestingChanges(false);
     }
@@ -636,12 +637,12 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
   }
 
   async function remove() {
-    if (!confirm(`删除任务"${task!.title}"？会清空对话/日志/审批等记录，但不会撤销 agent 已经改动的文件。`)) return;
+    if (!(await confirmDialog("会清空对话、日志、审批等记录，但不会撤销 Agent 已经改动的文件。", { title: `删除任务「${task!.title}」？`, danger: true }))) return;
     try {
       await api.deleteTask(taskId);
       onDeleted();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 
@@ -671,9 +672,10 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
     const nextWorkspace = workspaces.find((w) => w.id === targetWorkspaceId);
     const confirmed =
       hasWorkspaceBoundHistory &&
-      confirm(
-        `该任务已有运行记录或对话。切换工作区只影响后续消息，不会迁移历史产物、文件记录和 Diff。\n\n是否切换到「${nextWorkspace?.name ?? "新工作区"}」？`
-      );
+      (await confirmDialog("这个任务已有运行记录或对话。切换工作区只影响后续消息，不会迁移历史产物、文件记录和 Diff。", {
+        title: `切换到「${nextWorkspace?.name ?? "新工作区"}」？`,
+        confirmText: "切换",
+      }));
     if (hasWorkspaceBoundHistory && !confirmed) return;
     setChangingWorkspace(true);
     try {
@@ -685,7 +687,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       setShowWorkspaceSwitch(false);
       setTab("chat");
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setChangingWorkspace(false);
     }
@@ -1096,7 +1098,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
         )}
         {tab === "flow" && (
           <Suspense fallback={<div className="workspace-loading">正在加载流程图…</div>}>
-            <FlowTab snapshot={flow} />
+            <FlowTab snapshot={flow} agents={agents} />
           </Suspense>
         )}
         {tab === "review" && <ReviewTab decisions={reviewDecisions} runs={flow?.runs ?? []} />}

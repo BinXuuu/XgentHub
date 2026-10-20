@@ -12,6 +12,7 @@ import type {
 } from "../api/types";
 import { api } from "../api/client";
 import { copyText } from "../utils/clipboard";
+import { confirmDialog } from "../utils/dialog";
 
 interface Props {
   agent: AgentDescriptor;
@@ -302,7 +303,7 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: 
     const note = agent.custom
       ? "已有任务记录不会删除，但这个接入将不再出现在列表里。"
       : "已有任务记录不会删除；如果以后想恢复，需要从数据文件恢复隐藏项或重新加一个自定义 Agent。";
-    if (!confirm(`${action} "${agent.name}"？${note}`)) return;
+    if (!(await confirmDialog(note, { title: `${action}「${agent.name}」？`, danger: true, confirmText: agent.custom ? "删除" : "隐藏" }))) return;
     setDeleting(true);
     setError(null);
     try {

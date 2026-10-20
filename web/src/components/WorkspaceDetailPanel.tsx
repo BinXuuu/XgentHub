@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { Workspace, WorkspaceResourcesInput } from "../api/types";
 import { KnowledgeGroupsTab, McpTab, SkillsTab, ToolsTab } from "./SelectionTabs";
+import { confirmDialog, errorDialog } from "../utils/dialog";
 
 interface Props {
   workspace: Workspace;
@@ -141,13 +142,13 @@ export function WorkspaceDetailPanel({ workspace, onBack, onWorkspacesChanged, o
   }
 
   async function deleteWorkspace() {
-    if (!confirm(`删除工作区"${workspace.name}"？它下面的任务记录也会一并删除，本机文件不受影响。`)) return;
+    if (!(await confirmDialog("它下面的任务记录也会一并删除，本机文件不受影响。", { title: `删除工作区「${workspace.name}」？`, danger: true }))) return;
     try {
       await api.deleteWorkspace(workspace.id);
       onBack();
       onWorkspacesChanged();
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     }
   }
 

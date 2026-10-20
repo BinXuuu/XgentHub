@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { AgentDescriptor, AgentRole, AgentRoleInput, KnowledgeGroup, McpServerDefinition, ModelOption, ResourceLibraryItem, RoleMemory } from "../api/types";
+import { confirmDialog } from "../utils/dialog";
 
 interface Props {
   role: AgentRole | null;
@@ -208,7 +209,7 @@ export function RolePanel({ role, agents, onBack, onSaved, onDeleted }: Props) {
   }
 
   async function remove() {
-    if (!role || !window.confirm(`删除角色「${role.name}」？`)) return;
+    if (!role || !(await confirmDialog("它的长期记忆也会一起删除。", { title: `删除角色「${role.name}」？`, danger: true }))) return;
     try {
       await api.deleteRole(role.id);
       onDeleted();

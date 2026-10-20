@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { copyText } from "../utils/clipboard";
 import type { ChatConversation } from "../api/types";
 import { useRowMenu } from "./useRowMenu";
+import { confirmDialog } from "../utils/dialog";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -122,7 +123,7 @@ export function ChatList({ chats, selectedChatId, onSelect, onNewChat, onChanged
 
   async function removeChat(chat: ChatConversation) {
     closeMenu();
-    if (!window.confirm(`删除聊天「${chat.title}」？`)) return;
+    if (!(await confirmDialog("聊天记录会一起删除。", { title: `删除聊天「${chat.title}」？`, danger: true }))) return;
     busyChatRef.current = chat.id;
     setBusyChatId(chat.id);
     setRowMessage(null);

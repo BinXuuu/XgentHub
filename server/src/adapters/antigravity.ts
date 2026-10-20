@@ -452,6 +452,7 @@ function createStreamHandler(ctx: TaskRuntimeContext) {
     if (evt.event === "init") {
       setConversationId(evt.conversation_id);
       const init = evt.init ?? {};
+      if (typeof init.model === "string" && init.model) ctx.reportModel?.(init.model);
       const model = init.model ? ` model=${init.model}` : "";
       const permission = init.permission_mode ? ` permission=${init.permission_mode}` : "";
       ctx.log(`[antigravity] started${model}${permission}`);

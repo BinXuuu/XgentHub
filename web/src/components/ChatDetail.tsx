@@ -7,6 +7,8 @@ import { ChatKnowledgeTab, McpTab, SkillsTab, ToolsTab } from "./SelectionTabs";
 import { RoleMemoryProposals } from "./RoleMemoryProposals";
 import { AttachmentButton, AttachmentChips, type AttachmentButtonHandle } from "./AttachmentBar";
 import { extractImageFiles } from "../utils/attachments";
+import { alertDialog, confirmDialog } from "../utils/dialog";
+import { AgentText } from "./AgentText";
 
 /** "正在回复"旁边显示已经等了多久：复杂问题可能要想好几分钟（超时是 10 分钟），让人知道它没卡住。 */
 function ChatWaitingChip({ since }: { since: string }) {
@@ -161,7 +163,7 @@ export function ChatDetail({ chatId, agents, onBack, onChanged, onDeleted }: Pro
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
       setSpeechError("当前浏览器不支持语音输入");
-      alert("当前浏览器不支持语音输入。建议用 Chrome / Edge，或后续接入本地 Whisper。");
+      void alertDialog("当前浏览器不支持语音输入。建议用 Chrome / Edge，或后续接入本地 Whisper。", { title: "用不了语音输入" });
       return;
     }
     setSpeechError(null);
@@ -351,7 +353,7 @@ export function ChatDetail({ chatId, agents, onBack, onChanged, onDeleted }: Pro
   }
 
   async function remove() {
-    if (!window.confirm("删除这个聊天？")) return;
+    if (!(await confirmDialog("聊天记录会一起删除。", { title: "删除这个聊天？", danger: true }))) return;
     setBusy(true);
     try {
       await api.deleteChat(chatId);
@@ -575,7 +577,7 @@ export function ChatDetail({ chatId, agents, onBack, onChanged, onDeleted }: Pro
                   <span>{formatTime(message.createdAt)}</span>
                 </div>
                 <div className="chat-message-bubble">
-                  {message.content && <div>{message.content}</div>}
+                  {message.content && (message.role === "agent" ? <AgentText text={message.content} /> : <div>{message.content}</div>)}
                   {message.images.length > 0 && (
                     <div className="chat-attachments">
                       {message.images.map((image, index) => (

@@ -25,6 +25,7 @@ import { registerMcpServerRoutes } from "./routes/mcpServers.ts";
 import { registerRoleRoutes } from "./routes/roles.ts";
 import { registerKnowledgeRoutes } from "./routes/knowledge.ts";
 import { startDataBackupSchedule } from "./services/dataBackupService.ts";
+import { currentVersion } from "./services/updateService.ts";
 import { startSnapshotPruneSchedule } from "./services/workspaceSnapshotService.ts";
 import { listWorkspaces, createWorkspace } from "./services/workspaceService.ts";
 
@@ -64,7 +65,9 @@ registerMcpServerRoutes(app);
 registerRoleRoutes(app);
 registerKnowledgeRoutes(app);
 
-app.get("/api/health", async () => ({ ok: true, time: new Date().toISOString() }));
+// startedAt：这个服务进程是什么时候启动的。在线更新后据此确认服务真的重启了，而不只是文件被换掉。
+const serverStartedAt = new Date().toISOString();
+app.get("/api/health", async () => ({ ok: true, time: new Date().toISOString(), version: currentVersion(), startedAt: serverStartedAt }));
 
 // 生产模式：如果 web/dist 已构建，直接由后端一并提供静态文件（单端口访问，便于 Tailscale 手机访问）
 const webDist = path.resolve(config.serverRoot, "../web/dist");

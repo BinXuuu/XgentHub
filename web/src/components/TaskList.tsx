@@ -4,6 +4,7 @@ import { copyText } from "../utils/clipboard";
 import type { Task, TaskStatus, Workspace } from "../api/types";
 import { StatusBadge } from "./StatusBadge";
 import { useRowMenu } from "./useRowMenu";
+import { confirmDialog } from "../utils/dialog";
 
 type Filter = "all" | "running" | "needs_approval" | "review" | "done" | "failed";
 
@@ -204,7 +205,7 @@ export function TaskList({ tasks, workspaces, filter, onFilterChange, selectedTa
       setRowMessage({ id: task.id, text: "运行中任务请先停止再删除" });
       return;
     }
-    if (!window.confirm(`删除任务「${task.title}」？\n\n只删除 AgentHub 记录，不会撤销工作区文件改动。`)) return;
+    if (!(await confirmDialog("只删除 AgentHub 里的记录，不会撤销工作区文件改动。", { title: `删除任务「${task.title}」？`, danger: true }))) return;
     busyTaskRef.current = task.id;
     setBusyTaskId(task.id);
     setRowMessage(null);

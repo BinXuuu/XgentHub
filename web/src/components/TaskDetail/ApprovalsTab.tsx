@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AlwaysAllowRule, Approval } from "../../api/types";
 import { RiskBadge } from "../StatusBadge";
 import { api } from "../../api/client";
+import { confirmDialog, errorDialog } from "../../utils/dialog";
 
 const APPROVAL_STATUS_LABEL: Record<string, string> = {
   pending: "待处理",
@@ -19,7 +20,7 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
     try {
       await api.decideApproval(approval.id, approval.taskId, decision, note.trim() || undefined);
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setBusy(false);
     }
@@ -81,7 +82,7 @@ function ApprovalRulesPanel() {
       .then((value) => {
         if (alive) setRules(value);
       })
-      .catch((err) => alert((err as Error).message))
+      .catch((err) => void errorDialog(err))
       .finally(() => {
         if (alive) setLoading(false);
       });
@@ -91,13 +92,13 @@ function ApprovalRulesPanel() {
   }, []);
 
   async function deleteRule(rule: AlwaysAllowRule) {
-    if (!confirm(`删除总是允许规则？\n${rule.pattern}`)) return;
+    if (!(await confirmDialog(rule.pattern, { title: "删除这条总是允许规则？", danger: true }))) return;
     setDeletingId(rule.id);
     try {
       await api.deleteApprovalRule(rule.id);
       setRules((current) => current.filter((item) => item.id !== rule.id));
     } catch (err) {
-      alert((err as Error).message);
+      void errorDialog(err);
     } finally {
       setDeletingId(null);
     }

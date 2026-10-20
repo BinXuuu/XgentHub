@@ -17,3 +17,6 @@ server/data/*
 *.sqlite
 *.sqlite-*
 .codex-runtime/
+
+# 开源版导出副本（单独的 git 仓库，推到 GitHub 用，见 scripts/export-opensource.mjs）
+/XgentHub-opensource/

@@ -188,6 +188,20 @@ function readCodexDefaultModel(): string | null {
   }
 }
 
+/**
+ * 这一轮实际用哪个模型：指定了就用指定的；没指定时用 Codex 配置里的默认模型——
+ * 但如果它已经不在可用模型列表里（OpenAI 下架了旧模型，比如 ChatGPT 账号不能再用 gpt-5.5），
+ * 就改用可用列表里的第一个，免得"默认"整个用不了。返回 null 表示交给 Codex 自己的默认。
+ */
+export function resolveCodexModel(explicit?: string | null): { model: string | null; fallbackFrom: string | null } {
+  if (explicit?.trim()) return { model: explicit.trim(), fallbackFrom: null };
+  const available = readCodexModelsCache();
+  if (available.length === 0) return { model: null, fallbackFrom: null };
+  const configured = readCodexDefaultModel();
+  if (configured && available.some((option) => option.id === configured)) return { model: null, fallbackFrom: null };
+  return { model: available[0]!.id, fallbackFrom: configured };
+}
+
 function collectJsonlFiles(root: string, out: { path: string; mtimeMs: number }[], limit = 3000) {
   if (!fs.existsSync(root) || out.length >= limit) return;
   let entries: fs.Dirent[];
@@ -231,7 +245,13 @@ function findLatestRateLimitSnapshot(): CodexRateLimitSnapshot | null {
   collectJsonlFiles(path.join(home, "sessions"), files);
   collectJsonlFiles(path.join(home, "archived_sessions"), files);
 
+  // 要的是"时间最新"的那条额度记录，不是"最近改过的文件里的第一条"：老会话文件也会被 Codex 改动（续接、追加别的事件），
+  // 它末尾的额度记录可能是好几天前的，以前就因此一直显示旧快照。一个文件里的记录不会比它的修改时间更新，
+  // 所以扫到修改时间早于已找到记录的文件就可以停。
+  let best: CodexRateLimitSnapshot | null = null;
+  let bestMs = 0;
   for (const file of files.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, RATE_LIMIT_SCAN_FILE_LIMIT)) {
+    if (best && file.mtimeMs < bestMs) break;
     let text = "";
     try {
       text = readFileTail(file.path);
@@ -240,18 +260,25 @@ function findLatestRateLimitSnapshot(): CodexRateLimitSnapshot | null {
     }
     const lines = text.split(/\r?\n/).filter(Boolean).reverse();
     for (const line of lines) {
+      if (!line.includes("rate_limits")) continue;
       try {
         const evt = JSON.parse(line);
         const rateLimits = evt?.payload?.rate_limits;
         if (rateLimits?.primary || rateLimits?.secondary || rateLimits?.credits) {
-          return { timestamp: evt.timestamp ?? new Date(file.mtimeMs).toISOString(), rateLimits };
+          const timestamp = evt.timestamp ?? new Date(file.mtimeMs).toISOString();
+          const ms = new Date(timestamp).getTime();
+          if (!best || ms > bestMs) {
+            best = { timestamp, rateLimits };
+            bestMs = ms;
+          }
+          break; // 这个文件里最新的一条已经拿到（倒序读），看下一个文件
         }
       } catch {
         // Continue scanning older lines.
       }
     }
   }
-  return null;
+  return best;
 }
 
 function formatCodexResetTime(value?: number): string {
@@ -362,7 +389,19 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
 
   const imageArgs = input.images.flatMap((img) => ["--image", img]);
   if (input.images.length) ctx.log(`附带 ${input.images.length} 张图片：${input.images.join(", ")}`);
-  const modelArgs = ctx.model ? ["-m", ctx.model] : [];
+  const resolvedModel = resolveCodexModel(ctx.model);
+  if (resolvedModel.model && !ctx.model) {
+    ctx.log(
+      resolvedModel.fallbackFrom
+        ? `Codex 配置里的默认模型 ${resolvedModel.fallbackFrom} 已不可用，这一轮改用当前可用的第一个模型 ${resolvedModel.model}`
+        : `Codex 配置里没有默认模型，这一轮用当前可用的第一个模型 ${resolvedModel.model}`
+    );
+  }
+  const modelArgs = resolvedModel.model ? ["-m", resolvedModel.model] : [];
+  if (!ctx.model) {
+    const used = resolvedModel.model ?? readCodexDefaultModel();
+    if (used) ctx.reportModel?.(used);
+  }
   const extraDirs = additionalWorkspaceDirs(ctx);
   const addDirArgs = extraDirs.flatMap((dir) => ["--add-dir", dir]);
 
@@ -517,7 +556,8 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   defaultModel(): string | null {
-    return readCodexDefaultModel();
+    // 界面上显示的"默认模型"要和实际会用的一致：配置里的默认已下架时显示改用的那个。
+    return resolveCodexModel(null).model ?? readCodexDefaultModel();
   }
 
   async listModels(): Promise<ModelOption[]> {
@@ -559,7 +599,8 @@ export class CodexAdapter implements AgentAdapter {
       await ensureCodexMcpServersRegistered(options.mcpServers, (message) => console.warn(`[codex ask mcp] ${message}`));
     }
     const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json"];
-    if (options?.model) args.push("-m", options.model);
+    const askModel = resolveCodexModel(options?.model).model;
+    if (askModel) args.push("-m", askModel);
     args.push("-");
     return new Promise((resolve, reject) => {
       let child;

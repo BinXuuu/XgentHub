@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Background, ControlButton, Controls, ReactFlow, type NodeMouseHandler } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
-import type { TaskFlowSnapshot, TaskRun } from "../../api/types";
-import { buildFlowGraph, latestRunForSubtask, type FlowGraph, TASK_NODE_ID } from "./flowLayout";
-import { flowNodeTypes } from "./FlowNodes";
+import type { AgentDescriptor, TaskFlowSnapshot, TaskRun } from "../../api/types";
+import { buildFlowGraph, latestRunForSubtask, visibleSubtasks, type AgentInfo, type FlowGraph, TASK_NODE_ID } from "./flowLayout";
+import { flowEdgeTypes, flowNodeTypes } from "./FlowNodes";
 import { ArtifactRow, CheckpointList, DomainEventRow, RecoveryRow, ReviewDecisionRow, StatusPill, clip, duration } from "./flowShared";
 
 function latestPrimaryRun(snapshot: TaskFlowSnapshot): TaskRun | null {
@@ -113,11 +113,15 @@ function FlowDetailPanel({ snapshot, selectedId, onClose }: { snapshot: TaskFlow
   );
 }
 
-export function FlowTab({ snapshot }: { snapshot: TaskFlowSnapshot | null }) {
+export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot | null; agents?: AgentDescriptor[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
-  const { nodes, edges } = useMemo<FlowGraph>(() => (snapshot ? buildFlowGraph(snapshot) : { nodes: [], edges: [] }), [snapshot]);
+  const agentInfo = useMemo(
+    () => new Map<string, AgentInfo>(agents.map((agent) => [agent.id, { name: agent.name, defaultModel: agent.defaultModel ?? null }])),
+    [agents]
+  );
+  const { nodes, edges } = useMemo<FlowGraph>(() => (snapshot ? buildFlowGraph(snapshot, agentInfo) : { nodes: [], edges: [] }), [snapshot, agentInfo]);
 
   const onNodeClick: NodeMouseHandler = (_event, node) => {
     setSelectedId((prev) => (prev === node.id ? null : node.id));
@@ -150,7 +154,7 @@ export function FlowTab({ snapshot }: { snapshot: TaskFlowSnapshot | null }) {
       <div className="flow-summary">
         <div className="flow-metric">
           <span>子任务</span>
-          <strong>{snapshot.subtasks.length}</strong>
+          <strong>{visibleSubtasks(snapshot).length}</strong>
         </div>
         <div className="flow-metric">
           <span>运行</span>
@@ -184,6 +188,7 @@ export function FlowTab({ snapshot }: { snapshot: TaskFlowSnapshot | null }) {
           nodes={nodes}
           edges={edges}
           nodeTypes={flowNodeTypes}
+          edgeTypes={flowEdgeTypes}
           onNodeClick={onNodeClick}
           fitView
           fitViewOptions={{ padding: 0.2 }}
@@ -199,7 +204,7 @@ export function FlowTab({ snapshot }: { snapshot: TaskFlowSnapshot | null }) {
           </Controls>
         </ReactFlow>
         {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} onClose={() => setSelectedId(null)} />}
-        {snapshot.subtasks.length === 0 && (
+        {visibleSubtasks(snapshot).length === 0 && (
           <div className="flow-canvas-hint">这个任务还没有拆分子任务，图上只有任务节点本身。</div>
         )}
       </div>
