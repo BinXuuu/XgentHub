@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(serverRoot, "..");
 
-// 兼容从仓库根目录（推荐，.env 放在 D:\Agent\AgentHub\.env）或直接在 server/ 目录下运行两种方式。
+// 兼容从仓库根目录（推荐，.env 放在仓库根目录）或直接在 server/ 目录下运行两种方式。
 for (const envPath of [path.join(repoRoot, ".env"), path.join(serverRoot, ".env")]) {
   if (fs.existsSync(envPath)) dotenv.config({ path: envPath });
 }

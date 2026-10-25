@@ -47,6 +47,42 @@ Xgent Hub 是一个本机 Agent 控制台，把你电脑上装的 coding agent �
 - **手机访问**：在局域网或 Tailscale 里用手机打开。
 - **数据安全**：启动时和每 24 小时自动备份数据库，附带恢复脚本。
 
+## Agent
+
+Agent 就是真正干活的 AI。Xgent 不自己写代码，而是把任务交给你已经在用的 Agent，并把它们统一管起来：
+
+- **本机命令行 Agent**：Codex、Claude Code、Antigravity、OpenClaw、Ark CLI。它们在你的电脑上直接读写工作区里的文件、跑命令。
+- **API 类 Agent**：推荐 API 中转站、豆包、Hermes、本机 Ollama，以及任何 OpenAI 兼容接口，适合聊天和不需要改文件的任务。
+- **自定义 Agent**：接入你自己的 API 或命令行工具。
+
+左边的 Agent 列表里，每个 Agent 后面都标着当前登录的账号，点「剩余用量」可以直接看额度。点进去是它的详情页：
+
+- **账号**：显示登录的是哪个账号、什么套餐。Codex 和 Claude Code 可以添加多个账号，每个账号有独立的登录、额度和会话记录，新建任务时像选 Agent 一样选它；Claude Code 账号还可以改用官方 API Key 或你自己的中转站。登录按钮会弹出登录窗口（macOS 打开「终端」，NAS 上给出登录命令）。
+- **自动探测**：检查命令行装没装、登没登录、版本是不是最新、有哪些模型、还剩多少额度，有问题会给出带「复制命令」的修复步骤。
+- **配置**：命令路径、沙箱模式、默认模型等，改完马上生效，不用手动编辑 `.env`。
+
+还可以把一个 Agent 包装成**角色**（比如「美工」「文案」），带上固定的说明、默认模型、知识库、MCP、工具和 Skill，用起来就像一个新的 Agent。
+
+![Agent 列表和 Codex 详情：账号、额度、自动探测](.github/screenshots/agents.png)
+
+![Claude Code 的第二个账号：走中转站](.github/screenshots/agent-accounts.png)
+
+## 工作区
+
+工作区就是一个项目文件夹。每个任务都属于一个工作区，Agent 在这个文件夹里干活，改动也只记在这里：
+
+- **上下文**：写下项目背景、技术约束、注意事项（比如「不引入框架」「改完要自测」），每一轮都会自动带给 Agent，不用每次在任务里重复。
+- **允许访问空间**：除了项目文件夹，还可以给 Agent 开放别的目录，比如设计素材、网络盘上的备份目录。
+- **可用资源**：勾选这个工作区要用的知识组、MCP、工具和 Skill，对里面所有任务生效。知识库、MCP 这些在左侧统一管理一次，多个工作区可以共用。
+- **快照和撤回**：Agent 每一轮改文件前都会给工作区拍快照，「文件 / Diff」页能看到这一轮改了什么，不满意可以退回到这一轮之前。
+- **可用 Agent**：可以限制这个工作区只让哪几类 Agent 干活。
+
+Docker 版里，工作区路径要填容器里的路径，比如 `/workspaces/my-project`（见下面的 Docker 安装说明）。
+
+![工作区：项目路径、允许访问空间、上下文](.github/screenshots/workspace.png)
+
+![工作区的可用资源：知识组、MCP、工具、Skill](.github/screenshots/workspace-resources.png)
+
 ## 环境要求
 
 - Windows 10 / 11、macOS（Apple 芯片和 Intel 都行）或 Linux；NAS（飞牛 fnOS、群晖等）推荐用 Docker 版

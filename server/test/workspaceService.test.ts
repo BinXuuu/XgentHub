@@ -139,7 +139,7 @@ test("workspace prompt includes image attachment paths as a fallback", () => {
     "提取文字",
     null,
     [],
-    ["D:\\Agent\\AgentHub\\server\\data\\attachments\\pending\\sample.png"]
+    ["C:\\XgentHub\\server\\data\\attachments\\pending\\sample.png"]
   );
 
   assert.match(prompt, /本轮用户附带了图片附件/);

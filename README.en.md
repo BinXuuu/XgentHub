@@ -47,6 +47,42 @@ Xgent Hub is a local control console for the coding agents installed on your com
 - **Phone access**: use it from your phone over the LAN or Tailscale.
 - **Data safety**: automatic database backups at startup and every 24 hours, with a restore script.
 
+## Agents
+
+Agents are the AIs that do the actual work. Xgent doesn't write code itself; it hands tasks to the agents you already use and manages them in one place:
+
+- **Local CLI agents**: Codex, Claude Code, Antigravity, OpenClaw, Ark CLI. They read and write files in the workspace and run commands on your machine.
+- **API agents**: the recommended API relay, Doubao, Hermes, a local Ollama, or any OpenAI-compatible endpoint — good for chat and tasks that don't touch files.
+- **Custom agents**: plug in your own API or command-line tool.
+
+The agent list on the left shows which account each agent is signed in with; "remaining usage" shows the quota right there. Each agent's page has:
+
+- **Account**: which account and plan it uses. Codex and Claude Code can have several accounts, each with its own login, quota and sessions, and you pick one when creating a task just like picking an agent; a Claude Code account can also use an official API key or your own relay. The log-in button opens a login window (a Terminal window on macOS, a ready-to-run command on a NAS).
+- **Diagnostics**: checks whether the CLI is installed and signed in, whether it is up to date, which models are available and how much quota is left, with copy-paste fix-up steps.
+- **Settings**: CLI path, sandbox mode, default model and so on, applied immediately without editing `.env` by hand.
+
+You can also wrap an agent as a **role** (e.g. "designer", "copywriter") with its own instructions, default model, knowledge, MCP servers, tools and skills; it then behaves like a new agent.
+
+![Agent list and the Codex page: account, quota, diagnostics](.github/screenshots/agents.png)
+
+![A second Claude Code account going through a relay](.github/screenshots/agent-accounts.png)
+
+## Workspaces
+
+A workspace is a project folder. Every task belongs to a workspace; the agent works inside that folder and its changes are tracked there:
+
+- **Context**: project background, technical constraints and house rules (e.g. "no frameworks", "test before you finish"), sent to the agent with every turn so you don't repeat them in each task.
+- **Extra access paths**: give the agent other folders too, such as design assets or a backup folder on a network drive.
+- **Resources**: pick the knowledge groups, MCP servers, tools and skills this workspace uses; they apply to every task in it. They are managed once on the left and can be shared by several workspaces.
+- **Snapshots and undo**: before each turn changes files, the workspace is snapshotted; the Files / Diff tab shows what that turn changed, and you can roll back to before it.
+- **Allowed agents**: optionally limit which kinds of agents may work in this workspace.
+
+In the Docker version, use the in-container path for a workspace, e.g. `/workspaces/my-project` (see the Docker install section).
+
+![Workspace: project path, extra access paths, context](.github/screenshots/workspace.png)
+
+![Workspace resources: knowledge groups, MCP, tools, skills](.github/screenshots/workspace-resources.png)
+
 ## Requirements
 
 - Windows 10 / 11, macOS (Apple silicon or Intel) or Linux; for a NAS (fnOS, Synology, ...) use the Docker image

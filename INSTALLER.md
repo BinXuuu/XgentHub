@@ -64,7 +64,7 @@ Use `build-nsis-installer.bat` to create the NSIS GUI installer prototype. It ru
 Before handing a bundle to another machine, run:
 
 ```powershell
-test-install-package.bat -InstallerZip D:\Agent\AgentHub\backups\XgentHub-installer-xxxx.zip
+test-install-package.bat -InstallerZip backups\XgentHub-installer-xxxx.zip
 ```
 
 By default this is a structural smoke test: it extracts the package to `backups\.install-smoke-*`, verifies required files, verifies `SHA256SUMS.txt`, and checks that private files such as `.env`, `node_modules`, logs, backups, and SQLite data are not included. Add `-RunInstall` when you want to run the full `install.bat` inside the smoke-test folder. Add `-RunService` together with `-RunInstall` to start the temporary install on a test port, check health/status/doctor, and stop it again.
@@ -72,7 +72,7 @@ By default this is a structural smoke test: it extracts the package to `backups\
 After building the NSIS prototype, run:
 
 ```powershell
-test-nsis-installer.bat -InstallerExe D:\Agent\AgentHub\backups\XgentHub-setup-nsis-xxxx.exe
+test-nsis-installer.bat -InstallerExe backups\XgentHub-setup-nsis-xxxx.exe
 ```
 
 The NSIS smoke test uses `backups\.nsis-smoke-*`, changes the temporary install to a test port, and validates silent uninstall retention.

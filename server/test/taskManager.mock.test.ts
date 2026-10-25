@@ -153,7 +153,7 @@ test("TaskManager drives the mock adapter through messages, approvals, files, an
 
   assert.equal(taskManager.listEvents(task.id).some((event) => event.type === "approval_requested"), true);
 
-  const attachedImage = "D:\\Agent\\AgentHub\\server\\data\\attachments\\pending\\test-image.png";
+  const attachedImage = "C:\\XgentHub\\server\\data\\attachments\\pending\\test-image.png";
   taskManager.sendMessage(task.id, "continue once", [attachedImage], "test");
   await waitFor(
     () => {
