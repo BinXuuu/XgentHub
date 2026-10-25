@@ -13,6 +13,7 @@ import type { Filter } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
 import { NewTaskModal } from "./components/NewTaskModal";
 import { AgentConfigPanel } from "./components/AgentConfigPanel";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AgentCreatePanel } from "./components/AgentCreatePanel";
 import { OnboardingPanel } from "./components/OnboardingPanel";
 import { WorkspaceDetailPanel } from "./components/WorkspaceDetailPanel";
@@ -183,9 +184,19 @@ function DashboardShell() {
     clearOnboardingDeepLink();
   }, [initialDataReady]);
 
-  useSSE(`/api/dashboard/stream`, "dashboard_event", () => {
-    refreshTasks();
-  });
+  // 断线重连后整体刷新一次：断线期间的任务状态变化不会补发。
+  useSSE(
+    `/api/dashboard/stream`,
+    "dashboard_event",
+    () => {
+      refreshTasks();
+    },
+    () => {
+      refreshTasks();
+      refreshChats();
+      refreshAgents();
+    }
+  );
 
   useEffect(() => {
     if (!chats.some((chat) => chat.status === "running")) return;
@@ -421,6 +432,9 @@ function DashboardShell() {
                 setNavView("dashboard");
               }}
               onAgentsChanged={refreshAgents}
+              onAgentCreated={(agent) => {
+                void refreshAgents().then(() => selectAgent(agent.id));
+              }}
               onDeleted={handleAgentDeleted}
             />
           ) : selectedWorkspace ? (
@@ -571,6 +585,7 @@ function DashboardShell() {
             selectedChatId ? "has-selected-chat" : ""
           } ${agentDetailOpen ? "has-agent-detail" : ""}`}
         >
+          <ErrorBoundary resetKey={[navView, selectedTaskId, selectedChatId, selectedAgentId, selectedWorkspaceId].join("|")}>
           {navView === "dashboard" && (
             <Dashboard
               tasks={tasks}
@@ -591,6 +606,7 @@ function DashboardShell() {
           {navView === "skills" && <ResourceCenter mode="skills" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
           {navView === "tools" && <ResourceCenter mode="tools" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
           {navView === "mcp" && <ResourceCenter mode="mcp" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
+          </ErrorBoundary>
         </div>
       </div>
 

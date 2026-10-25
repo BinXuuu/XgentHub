@@ -9,6 +9,7 @@ import {
   updateCustomAgent,
 } from "./customAgentService.ts";
 import type { AgentConfigField, AgentConfigResponse } from "../types.ts";
+import { writeTextAtomic } from "./jsonStore.ts";
 
 type FieldType = AgentConfigField["type"];
 
@@ -449,8 +450,8 @@ function writeEnvValues(updates: Map<string, string>) {
   if (missing.length > 0 && next.some((line) => line.trim() !== "")) next.push("");
   for (const key of missing) next.push(`${key}=${formatEnvValue(updates.get(key) ?? "")}`);
 
-  fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, next.join("\n").replace(/\n*$/, "\n"), "utf8");
+  // 先写临时文件再替换，并留上一版 .env.bak：写到一半出问题不会丢掉 ADMIN_TOKEN 这些配置。
+  writeTextAtomic(envPath, next.join("\n").replace(/\n*$/, "\n"));
 }
 
 export function getAgentConfig(agentId: string): AgentConfigResponse {

@@ -1,3 +1,4 @@
+import { textField } from "./validation.ts";
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth.ts";
 import { chatService } from "../services/chatService.ts";
@@ -34,8 +35,8 @@ export function registerChatRoutes(app: FastifyInstance) {
   app.get("/api/chats", { preHandler: requireAuth }, async () => chatService.listChats());
 
   app.post<{ Body: CreateChatBody }>("/api/chats", { preHandler: requireAuth }, async (req, reply) => {
-    const agentId = req.body?.agentId?.trim();
-    const title = req.body?.title?.trim();
+    const agentId = textField(req.body?.agentId, "agentId");
+    const title = textField(req.body?.title, "title");
     if (!agentId || !title) {
       reply.code(400);
       return { error: "agentId / title 均为必填项" };
@@ -60,7 +61,7 @@ export function registerChatRoutes(app: FastifyInstance) {
   });
 
   app.put<{ Params: { id: string }; Body: RenameChatBody }>("/api/chats/:id", { preHandler: requireAuth }, async (req, reply) => {
-    const title = req.body?.title?.trim();
+    const title = textField(req.body?.title, "title");
     if (!title) {
       reply.code(400);
       return { error: "title 为必填项" };
@@ -127,7 +128,7 @@ export function registerChatRoutes(app: FastifyInstance) {
   );
 
   app.put<{ Params: { id: string }; Body: UpdateChatAgentBody }>("/api/chats/:id/agent", { preHandler: requireAuth }, async (req, reply) => {
-    const agentId = req.body?.agentId?.trim();
+    const agentId = textField(req.body?.agentId, "agentId");
     if (!agentId) {
       reply.code(400);
       return { error: "agentId 为必填项" };
@@ -158,7 +159,7 @@ export function registerChatRoutes(app: FastifyInstance) {
     "/api/chats/:id/messages",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const message = req.body?.message?.trim();
+      const message = textField(req.body?.message, "message");
       const images = req.body?.images ?? [];
       if (!message && images.length === 0) {
         reply.code(400);

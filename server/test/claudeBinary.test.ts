@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const { newestClaudeIn, resolveClaudeCodeBin } = await import("../src/adapters/claudeBinary.ts");
+const { clearClaudeBinaryCache, newestClaudeIn, resolveClaudeCodeBin } = await import("../src/adapters/claudeBinary.ts");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "agenthub-claude-bin-"));
 after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -32,10 +32,27 @@ test("a pinned desktop-app path follows upgrades, even after the old version fol
   const old = fakeVersion(dir, "2.1.293", "old111");
   assert.equal(resolveClaudeCodeBin(old), old);
 
-  // 桌面版自动升级：多了新版本，旧版本目录被清掉。缓存 30 秒，换个等价写法的配置值绕过缓存。
+  // 桌面版自动升级：多了新版本，旧版本目录被清掉。查找结果缓存 30 秒，先清掉缓存。
   const upgraded = fakeVersion(dir, "2.1.300", "new222");
   fs.rmSync(path.join(dir, "2.1.293"), { recursive: true, force: true });
-  assert.equal(resolveClaudeCodeBin(old.replace(/\\/g, "/")), upgraded);
+  clearClaudeBinaryCache();
+  assert.equal(resolveClaudeCodeBin(old), upgraded);
+});
+
+test("macOS layout: <version>/claude.app/Contents/MacOS/claude is found and followed across upgrades", () => {
+  const dir = path.join(root, "mac", "Claude", "claude-code");
+  const macBin = (version: string) => {
+    const bin = path.join(dir, version, "claude.app", "Contents", "MacOS", "claude");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "");
+    return bin;
+  };
+  const old = macBin("2.1.219");
+  assert.equal(newestClaudeIn(dir), old);
+  const upgraded = macBin("2.1.300");
+  fs.rmSync(path.join(dir, "2.1.219"), { recursive: true, force: true });
+  clearClaudeBinaryCache();
+  assert.equal(resolveClaudeCodeBin(old), upgraded);
 });
 
 test("paths outside the desktop app's versioned folder are left alone", () => {

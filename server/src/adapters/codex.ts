@@ -1,6 +1,5 @@
 import { execFile, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config.ts";
@@ -9,7 +8,8 @@ import { cliAvailable, killProcessTree, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { FileChange, ModelOption } from "../types.ts";
+import type { AgentAccountInfo, FileChange, ModelOption } from "../types.ts";
+import { codexEnvForHome, defaultCodexHome, readCodexAccountInfo } from "../services/codexAccountService.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
 const execFileAsync = promisify(execFile);
@@ -23,9 +23,8 @@ interface CodexModelsCache {
   models?: { slug?: string; display_name?: string; visibility?: string; priority?: number }[];
 }
 
-function readCodexModelsCache(): ModelOption[] {
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  const cachePath = path.join(codexHome, "models_cache.json");
+function readCodexModelsCache(home: string = defaultCodexHome()): ModelOption[] {
+  const cachePath = path.join(home, "models_cache.json");
   try {
     const parsed = JSON.parse(fs.readFileSync(cachePath, "utf8")) as CodexModelsCache;
     return (parsed.models ?? [])
@@ -43,9 +42,9 @@ function readCodexModelsCache(): ModelOption[] {
  * 这是 Codex CLI 自己的限制。name 统一带 agenthub- 前缀，这里只增不删/不碰其它条目，
  * 保证用户自己手动 `codex mcp add` 配的（比如 cad-drafting）绝不会被动到。
  */
-function runCodexCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+function runCodexCli(args: string[], home: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawnCli(config.codex.bin, args, { cwd: process.cwd(), preferCmdShim: true });
+    const child = spawnCli(config.codex.bin, args, { cwd: process.cwd(), preferCmdShim: true, env: codexEnvForHome(home) });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
@@ -55,9 +54,9 @@ function runCodexCli(args: string[]): Promise<{ code: number; stdout: string; st
   });
 }
 
-async function listCodexMcpServerNames(): Promise<Set<string>> {
+async function listCodexMcpServerNames(home: string): Promise<Set<string>> {
   try {
-    const { code, stdout } = await runCodexCli(["mcp", "list", "--json"]);
+    const { code, stdout } = await runCodexCli(["mcp", "list", "--json"], home);
     if (code !== 0) return new Set();
     const parsed = JSON.parse(stdout) as { name?: string }[];
     return new Set(parsed.map((item) => item.name).filter((name): name is string => typeof name === "string"));
@@ -71,16 +70,18 @@ async function listCodexMcpServerNames(): Promise<Set<string>> {
 // 消息都白白多等 6 秒。这里用进程内存缓存记住"这一轮 AgentHub 进程里已经确认注册过"的名字，
 // 同名 server 第二次起直接跳过 list/add。代价：如果用户在终端手动 `codex mcp remove` 了某个
 // agenthub- 条目，AgentHub 要到下次重启才会发现并补注册——用这个小概率换掉每轮必等的几秒延迟。
+// 每个 Codex 账号有自己的 config.toml，注册情况按账号目录分开记。
 const confirmedRegisteredCodexNames = new Set<string>();
 
-async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (message: string) => void): Promise<void> {
-  const uncached = servers.filter((server) => !confirmedRegisteredCodexNames.has(server.name));
+async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (message: string) => void, home: string): Promise<void> {
+  const cacheKey = (name: string) => `${home.toLowerCase()}|${name}`;
+  const uncached = servers.filter((server) => !confirmedRegisteredCodexNames.has(cacheKey(server.name)));
   if (uncached.length === 0) return;
 
-  const registered = await listCodexMcpServerNames();
+  const registered = await listCodexMcpServerNames(home);
   const missing: McpServerSpec[] = [];
   for (const server of uncached) {
-    if (registered.has(server.name)) confirmedRegisteredCodexNames.add(server.name);
+    if (registered.has(server.name)) confirmedRegisteredCodexNames.add(cacheKey(server.name));
     else missing.push(server);
   }
   if (missing.length === 0) return;
@@ -99,9 +100,9 @@ async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (m
         for (const [key, value] of Object.entries(server.env ?? {})) args.push("--env", `${key}=${value}`);
         args.push("--", server.command, ...(server.args ?? []));
       }
-      const result = await runCodexCli(args);
+      const result = await runCodexCli(args, home);
       if (result.code !== 0) log(`[mcp] 注册 "${server.name}" 到 Codex 失败：${result.stderr.trim() || `exit ${result.code}`}`);
-      else confirmedRegisteredCodexNames.add(server.name);
+      else confirmedRegisteredCodexNames.add(cacheKey(server.name));
     } catch (err) {
       log(`[mcp] 注册 "${server.name}" 到 Codex 失败：${(err as Error).message}`);
     }
@@ -173,14 +174,10 @@ interface CodexRateLimitSnapshot {
   };
 }
 
-function codexHome(): string {
-  return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-}
-
 /** Codex 自己的默认模型：~/.codex/config.toml 顶层的 model = "..."（第一个 [段落] 之前）。 */
-function readCodexDefaultModel(): string | null {
+function readCodexDefaultModel(home: string = defaultCodexHome()): string | null {
   try {
-    const text = fs.readFileSync(path.join(codexHome(), "config.toml"), "utf8");
+    const text = fs.readFileSync(path.join(home, "config.toml"), "utf8");
     const topLevel = text.split(/^\s*\[/m)[0] ?? "";
     return topLevel.match(/^\s*model\s*=\s*"([^"]+)"/m)?.[1] ?? null;
   } catch {
@@ -193,11 +190,11 @@ function readCodexDefaultModel(): string | null {
  * 但如果它已经不在可用模型列表里（OpenAI 下架了旧模型，比如 ChatGPT 账号不能再用 gpt-5.5），
  * 就改用可用列表里的第一个，免得"默认"整个用不了。返回 null 表示交给 Codex 自己的默认。
  */
-export function resolveCodexModel(explicit?: string | null): { model: string | null; fallbackFrom: string | null } {
+export function resolveCodexModel(explicit?: string | null, home: string = defaultCodexHome()): { model: string | null; fallbackFrom: string | null } {
   if (explicit?.trim()) return { model: explicit.trim(), fallbackFrom: null };
-  const available = readCodexModelsCache();
+  const available = readCodexModelsCache(home);
   if (available.length === 0) return { model: null, fallbackFrom: null };
-  const configured = readCodexDefaultModel();
+  const configured = readCodexDefaultModel(home);
   if (configured && available.some((option) => option.id === configured)) return { model: null, fallbackFrom: null };
   return { model: available[0]!.id, fallbackFrom: configured };
 }
@@ -239,9 +236,8 @@ function readFileTail(filePath: string, maxBytes = RATE_LIMIT_TAIL_BYTES): strin
   return buffer.toString("utf8");
 }
 
-function findLatestRateLimitSnapshot(): CodexRateLimitSnapshot | null {
+function findLatestRateLimitSnapshot(home: string): CodexRateLimitSnapshot | null {
   const files: { path: string; mtimeMs: number }[] = [];
-  const home = codexHome();
   collectJsonlFiles(path.join(home, "sessions"), files);
   collectJsonlFiles(path.join(home, "archived_sessions"), files);
 
@@ -351,10 +347,14 @@ async function handleLine(ctx: TaskRuntimeContext, line: string): Promise<void> 
     case "turn.completed":
       ctx.setStatus("review");
       break;
-    case "turn.failed":
-      ctx.log(`[codex] turn failed: ${evt.error?.message ?? JSON.stringify(evt.error ?? evt)}`);
+    case "turn.failed": {
+      const reason = evt.error?.message ?? JSON.stringify(evt.error ?? evt);
+      ctx.log(`[codex] turn failed: ${reason}`);
+      // 原因也发到对话里：不然像 Key 不对、登录过期这种失败，用户只看到"失败"，要翻日志才知道为什么。
+      ctx.agentMessage(`Codex 这一轮失败了：${reason}`);
       ctx.setStatus("failed");
       break;
+    }
     case "error":
       ctx.log(`[codex] ${evt.message ?? JSON.stringify(evt)}`);
       break;
@@ -363,7 +363,7 @@ async function handleLine(ctx: TaskRuntimeContext, line: string): Promise<void> 
   }
 }
 
-async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null): Promise<void> {
+async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null, home: string): Promise<void> {
   const text = input.text;
   const prompt = buildWorkspacePrompt(ctx.workspacePath, text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths);
   const risk = scanRisk(text);
@@ -383,13 +383,13 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   }
 
   if (ctx.mcpServers.length) {
-    await ensureCodexMcpServersRegistered(ctx.mcpServers, ctx.log);
+    await ensureCodexMcpServersRegistered(ctx.mcpServers, ctx.log, home);
     ctx.log(`已确保 MCP 在 Codex 注册: ${ctx.mcpServers.map((s) => s.name).join(", ")}`);
   }
 
   const imageArgs = input.images.flatMap((img) => ["--image", img]);
   if (input.images.length) ctx.log(`附带 ${input.images.length} 张图片：${input.images.join(", ")}`);
-  const resolvedModel = resolveCodexModel(ctx.model);
+  const resolvedModel = resolveCodexModel(ctx.model, home);
   if (resolvedModel.model && !ctx.model) {
     ctx.log(
       resolvedModel.fallbackFrom
@@ -399,7 +399,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   }
   const modelArgs = resolvedModel.model ? ["-m", resolvedModel.model] : [];
   if (!ctx.model) {
-    const used = resolvedModel.model ?? readCodexDefaultModel();
+    const used = resolvedModel.model ?? readCodexDefaultModel(home);
     if (used) ctx.reportModel?.(used);
   }
   const extraDirs = additionalWorkspaceDirs(ctx);
@@ -457,7 +457,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   ctx.setStatus("running");
 
   await new Promise<void>((resolve) => {
-    const child = spawnCli(config.codex.bin, args, { cwd: ctx.workspacePath, preferCmdShim: true });
+    const child = spawnCli(config.codex.bin, args, { cwd: ctx.workspacePath, preferCmdShim: true, env: codexEnvForHome(home) });
     child.stdin!.end(prompt);
 
     let buffer = "";
@@ -538,18 +538,52 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   });
 }
 
+/** 另外添加的 Codex 账号；不传就是默认账号（~/.codex，内置的 "codex"）。 */
+export interface CodexAccountOptions {
+  id: string;
+  name: string;
+  home: string;
+}
+
 export class CodexAdapter implements AgentAdapter {
+  readonly id?: string;
   readonly kind = "codex" as const;
   readonly enforcesPlanMode = true as const;
-  readonly name = "Codex";
+  readonly name: string;
   readonly description = "通过 `codex exec --json`（真实 OS 沙箱）驱动任务";
   readonly supportsMcp = true as const;
+  private readonly accountOptions: CodexAccountOptions | null;
+
+  constructor(account?: CodexAccountOptions) {
+    this.accountOptions = account ?? null;
+    if (account) {
+      this.id = account.id;
+      this.name = `Codex（${account.name}）`;
+    } else {
+      this.name = "Codex";
+    }
+  }
+
+  /** 这个账号的 CODEX_HOME。默认账号每次现取：测试会改 CODEX_HOME 环境变量。 */
+  get home(): string {
+    return this.accountOptions?.home ?? defaultCodexHome();
+  }
+
+  account(): AgentAccountInfo {
+    return readCodexAccountInfo({
+      id: this.accountOptions?.id ?? "codex",
+      name: this.accountOptions?.name ?? "默认账号",
+      home: this.home,
+      isDefault: !this.accountOptions,
+    });
+  }
 
   isConfigured() {
     return cliAvailable(config.codex.bin, { preferCmdShim: true });
   }
   configHint() {
-    return `使用 CODEX_BIN="${config.codex.bin}"，沙箱模式=${config.codex.sandboxMode}；需要本机已 npm i -g @openai/codex 并 codex login`;
+    const base = `使用 CODEX_BIN="${config.codex.bin}"，沙箱模式=${config.codex.sandboxMode}；需要本机已 npm i -g @openai/codex 并 codex login`;
+    return this.accountOptions ? `${base}；账号目录 CODEX_HOME=${this.home}` : base;
   }
   async discoverWorkspaces() {
     return [];
@@ -557,27 +591,48 @@ export class CodexAdapter implements AgentAdapter {
 
   defaultModel(): string | null {
     // 界面上显示的"默认模型"要和实际会用的一致：配置里的默认已下架时显示改用的那个。
-    return resolveCodexModel(null).model ?? readCodexDefaultModel();
+    return resolveCodexModel(null, this.home).model ?? readCodexDefaultModel(this.home);
   }
 
   async listModels(): Promise<ModelOption[]> {
-    return readCodexModelsCache();
+    return readCodexModelsCache(this.home);
   }
 
   async getUsageSummary(): Promise<string | null> {
-    const snapshot = findLatestRateLimitSnapshot();
+    const snapshot = findLatestRateLimitSnapshot(this.home);
     if (!snapshot) {
       return "Codex 额度\n暂无本机额度快照：请先运行一次 Codex 任务，或在 Codex CLI 活跃会话里输入 /status 查看。";
     }
     return formatCodexRateLimitSnapshot(snapshot);
   }
 
+  /**
+   * 另外添加的账号没登录时，codex 会连试 10 次、最后只报 401，原因埋在日志里。先拦下来直接告诉用户。
+   * 默认账号不拦：它可能用环境变量里的 Key 登录，auth.json 里看不出来。
+   */
+  private notLoggedInMessage(): string | null {
+    if (!this.accountOptions || this.account().loggedIn) return null;
+    return `「${this.name}」还没登录。请在左侧打开这个 Agent，在「Codex 账号」里点「登录 ChatGPT 账号」或「用 API Key 登录」，登录后再重试。`;
+  }
+
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input, null);
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) {
+      ctx.agentMessage(notLoggedIn);
+      ctx.setStatus("failed");
+      return;
+    }
+    await dispatch(ctx, input, null, this.home);
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input, ctx.sessionKey);
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) {
+      ctx.agentMessage(notLoggedIn);
+      ctx.setStatus("failed");
+      return;
+    }
+    await dispatch(ctx, input, ctx.sessionKey, this.home);
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
@@ -595,17 +650,19 @@ export class CodexAdapter implements AgentAdapter {
    * 查不到/失败返回 null。
    */
   async ask(prompt: string, options?: { model?: string | null; mcpServers?: McpServerSpec[] }): Promise<string | null> {
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) throw new Error(notLoggedIn);
     if (options?.mcpServers?.length) {
-      await ensureCodexMcpServersRegistered(options.mcpServers, (message) => console.warn(`[codex ask mcp] ${message}`));
+      await ensureCodexMcpServersRegistered(options.mcpServers, (message) => console.warn(`[codex ask mcp] ${message}`), this.home);
     }
     const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json"];
-    const askModel = resolveCodexModel(options?.model).model;
+    const askModel = resolveCodexModel(options?.model, this.home).model;
     if (askModel) args.push("-m", askModel);
     args.push("-");
     return new Promise((resolve, reject) => {
       let child;
       try {
-        child = spawnCli(config.codex.bin, args, { cwd: process.cwd(), preferCmdShim: true });
+        child = spawnCli(config.codex.bin, args, { cwd: process.cwd(), preferCmdShim: true, env: codexEnvForHome(this.home) });
       } catch (err) {
         reject(new Error(`启动 Codex 失败：${(err as Error).message}`));
         return;

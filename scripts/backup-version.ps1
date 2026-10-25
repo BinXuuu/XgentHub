@@ -43,6 +43,9 @@ $excludeDirs = @(
 )
 $excludeFiles = @(
   ".env",
+  ".env.bak",
+  ".env.*.tmp",
+  ".env.corrupt-*",
   "*.sqlite",
   "*.sqlite-*",
   "*.db",

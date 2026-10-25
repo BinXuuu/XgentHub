@@ -46,6 +46,9 @@ try {
   $excludeDirs = @("node_modules", "logs", "backups", ".git", ".github", "XgentHub-opensource", "attachments", "docs", "installer", ".codex-runtime", (Join-Path $Root "server\data"))
   $excludeFiles = @(
     ".env",
+    ".env.bak",
+    ".env.*.tmp",
+    ".env.corrupt-*",
     "*.sqlite",
     "*.sqlite-*",
     "*.db",
@@ -83,7 +86,7 @@ try {
 $installDoc = @"
 # Xgent Hub install package
 
-1. Install Node.js 22.5+.
+1. Install Node.js 22.13+.
 2. Extract this folder to the target path.
 3. Run install.bat.
 4. Run start-app.bat to open the desktop app shell, or run start-prod.bat for browser-only mode.

@@ -5,7 +5,10 @@ import { config } from "../config.ts";
 import { getAdapter, toDescriptor } from "../adapters/registry.ts";
 import { resolveCliBinary, spawnCli } from "../adapters/winSpawn.ts";
 import { getCustomAgent } from "./customAgentService.ts";
+import { codexEnvForHome, codexHomeForAgent } from "./codexAccountService.ts";
+import { claudeEnvForAgent, claudeHomeForAgent, getClaudeAccount } from "./claudeAccountService.ts";
 import type {
+  AgentAccountInfo,
   AgentDiagnosticCheck,
   AgentDiagnostics,
   AgentDiagnosticStatus,
@@ -65,9 +68,10 @@ function url(label: string, target: string, description?: string): AgentSetupAct
  * Claude Code 的登录命令。用的是 Claude 桌面版自带的 claude.exe 时它不在 PATH 里，终端里敲 claude 找不到，
  * 所以给带完整路径的 PowerShell 写法。
  */
-function claudeLoginCommand(): string {
+function claudeLoginCommand(accountHome: string | null = null): string {
   const bin = config.claudeCode.bin;
-  return /[\\/]/.test(bin) ? `& "${bin}" auth login` : `${bin} auth login`;
+  const login = /[\\/]/.test(bin) ? `& "${bin}" auth login` : `${bin} auth login`;
+  return accountHome ? `$env:CLAUDE_CONFIG_DIR="${accountHome}"; ${login}` : login;
 }
 
 function step(title: string, status: AgentDiagnosticStatus, description: string, actions: AgentSetupAction[] = []): AgentSetupStep {
@@ -87,14 +91,27 @@ function buildSetupSteps(
   checks: AgentDiagnosticCheck[],
   models?: AgentDiagnosticSummary,
   subAgents?: AgentDiagnosticSummary,
-  cliMissing = false
+  cliMissing = false,
+  accountHome: string | null = null
 ): AgentSetupStep[] {
-  const steps = buildSetupStepsRaw(agentId, checks, models, subAgents);
+  const steps = buildSetupStepsRaw(agentId, checks, models, subAgents, accountHome);
   if (!cliMissing) return steps;
   return steps.map((item, index) => (index > 0 && item.status === "ok" ? { ...item, status: "warn" as AgentDiagnosticStatus } : item));
 }
 
-function buildSetupStepsRaw(agentId: string, checks: AgentDiagnosticCheck[], models?: AgentDiagnosticSummary, subAgents?: AgentDiagnosticSummary): AgentSetupStep[] {
+/** 另外添加的 Codex 账号要带上自己的 CODEX_HOME 再跑 codex 命令（PowerShell 写法）；默认账号直接跑。 */
+function codexCommand(args: string, codexHome: string | null): string {
+  if (!codexHome || codexEnvForHome(codexHome) === undefined) return `codex ${args}`;
+  return `$env:CODEX_HOME="${codexHome}"; codex ${args}`;
+}
+
+function buildSetupStepsRaw(
+  agentId: string,
+  checks: AgentDiagnosticCheck[],
+  models?: AgentDiagnosticSummary,
+  subAgents?: AgentDiagnosticSummary,
+  accountHome: string | null = null
+): AgentSetupStep[] {
   const readyAction = command("创建任务前刷新探测", "npm run service:status", "确认 Xgent Hub 和本地服务在线。");
   const modelCount = models?.count ?? 0;
   const subAgentCount = subAgents?.count ?? 0;
@@ -112,9 +129,9 @@ function buildSetupStepsRaw(agentId: string, checks: AgentDiagnosticCheck[], mod
             field("定位 CLI 路径", "CODEX_BIN"),
           ]
         ),
-        step("登录 Codex", statusOf(checks, "登录状态"), "Codex CLI 需要本机登录态。", [
-          command("复制登录命令", "codex login"),
-          command("复制状态命令", "codex login status"),
+        step("登录 Codex", statusOf(checks, "登录状态"), "Codex CLI 需要本机登录态。也可以用上面「Codex 账号」里的「登录」按钮。", [
+          command("复制登录命令", codexCommand("login", accountHome)),
+          command("复制状态命令", codexCommand("login status", accountHome)),
         ]),
         step("设置权限边界", statusOf(checks, "沙箱"), "建议日常保持 workspace-write；完全访问只给可信任务。", [
           field("定位沙箱模式", "CODEX_SANDBOX_MODE"),
@@ -161,8 +178,8 @@ function buildSetupStepsRaw(agentId: string, checks: AgentDiagnosticCheck[], mod
           statusOf(checks, "登录状态"),
           "登录过期后 Claude Code 的任务和聊天都会失败。复制下面的命令到 PowerShell 运行，会打开浏览器让你登录 Claude 账号，登录完回来点「重新探测」。",
           [
-            command("复制登录命令", claudeLoginCommand(), "用 Claude 订阅账号登录；用 API 计费的话在命令末尾加 --console。"),
-            command("复制查看登录状态命令", claudeLoginCommand().replace(/auth login$/, "auth status")),
+            command("复制登录命令", claudeLoginCommand(accountHome), "用 Claude 订阅账号登录；用 API 计费的话在命令末尾加 --console。"),
+            command("复制查看登录状态命令", claudeLoginCommand(accountHome).replace(/auth login$/, "auth status")),
           ]
         ),
         step("确认 headless 参数", statusOf(checks, "Headless 参数"), "stream-json 输出依赖 --print --output-format stream-json --verbose。", [
@@ -353,7 +370,7 @@ async function desktopCodexVersion(): Promise<string | null> {
   return newest;
 }
 
-function runCli(bin: string, args: string[], timeoutMs = 15_000, opts: { preferCmdShim?: boolean } = {}): Promise<CliResult> {
+function runCli(bin: string, args: string[], timeoutMs = 15_000, opts: { preferCmdShim?: boolean; env?: NodeJS.ProcessEnv } = {}): Promise<CliResult> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result: CliResult) => {
@@ -363,7 +380,7 @@ function runCli(bin: string, args: string[], timeoutMs = 15_000, opts: { preferC
     };
     let child;
     try {
-      child = spawnCli(bin, args, { cwd: process.cwd(), preferCmdShim: opts.preferCmdShim });
+      child = spawnCli(bin, args, { cwd: process.cwd(), preferCmdShim: opts.preferCmdShim, env: opts.env });
     } catch (err) {
       finish({ code: null, stdout: "", stderr: "", error: err as Error });
       return;
@@ -461,6 +478,12 @@ async function collectSubAgents(checks: AgentDiagnosticCheck[], agentId: string)
 async function collectUsage(checks: AgentDiagnosticCheck[], agentId: string): Promise<string | null | undefined> {
   const adapter = getAdapter(agentId);
   if (!adapter?.getUsageSummary) return undefined;
+  // 能加多个账号的（Codex、Claude Code）登录状态读得准；Antigravity 的登录在系统凭据里，读不到不代表没登录。
+  const account = adapter.account?.();
+  if (account?.supportsMultiple && !account.loggedIn) {
+    addCheck(checks, "用量/登录", "warn", "这个账号还没登录，查不到额度。");
+    return undefined;
+  }
   const usage = await withTimeout(adapter.getUsageSummary(), 35_000, null);
   if (usage) addCheck(checks, "用量/登录", "ok", usage.split("\n")[0] ?? "已返回用量信息");
   else addCheck(checks, "用量/登录", "warn", "未返回用量信息；可能是不支持查询、未登录或服务暂不可用。");
@@ -468,25 +491,41 @@ async function collectUsage(checks: AgentDiagnosticCheck[], agentId: string): Pr
 }
 
 /** 返回 true 表示这个 Agent 依赖的 CLI 在本机找不到。 */
-async function diagnoseBuiltin(agentId: string, checks: AgentDiagnosticCheck[], nextSteps: string[]): Promise<boolean> {
+async function diagnoseBuiltin(
+  agentId: string,
+  checks: AgentDiagnosticCheck[],
+  nextSteps: string[],
+  accountHome: string | null = null,
+  account: AgentAccountInfo | null = null,
+  claudeEnv: NodeJS.ProcessEnv | undefined = undefined
+): Promise<boolean> {
   switch (agentId) {
     case "codex": {
       if (!checkCli(checks, "Codex CLI", config.codex.bin, { preferCmdShim: true })) {
         nextSteps.push("安装：npm install -g @openai/codex，然后运行 codex login。");
         return true;
       }
-      const status = await runCli(config.codex.bin, ["login", "status"], 15_000, { preferCmdShim: true });
-      const text = stripAnsi(`${status.stdout}\n${status.stderr}`).trim();
-      if (status.code === 0 && /logged in/i.test(text)) addCheck(checks, "登录状态", "ok", text);
-      else {
+      const codexEnv = accountHome ? codexEnvForHome(accountHome) : undefined;
+      if (codexEnv) addCheck(checks, "账号目录", "ok", accountHome!);
+      const status = await runCli(config.codex.bin, ["login", "status"], 15_000, { preferCmdShim: true, env: codexEnv });
+      // 账号目录不在默认位置时 codex 会多打一行"不建 PATH 别名"的 WARNING，跟登录状态无关。
+      const text = stripAnsi(`${status.stdout}\n${status.stderr}`)
+        .split(/\r?\n/)
+        .filter((line) => line.trim() && !line.startsWith("WARNING:"))
+        .join("\n")
+        .trim();
+      if (status.code === 0 && /logged in/i.test(text) && !/not logged in/i.test(text)) {
+        const who = account?.email ? `${account.email}${account.plan ? `（${account.plan}）` : ""}` : null;
+        addCheck(checks, "登录状态", "ok", who ? `${text}：${who}` : text);
+      } else {
         addCheck(checks, "登录状态", "warn", text || "无法确认 Codex 登录状态");
-        nextSteps.push("在终端运行 codex login，完成后再刷新诊断。");
+        nextSteps.push("点上面「Codex 账号」里的「登录」，或在终端运行登录命令，完成后再刷新诊断。");
       }
       addCheck(checks, "沙箱", config.codex.sandboxMode === "danger-full-access" ? "warn" : "ok", config.codex.sandboxMode);
 
       // 版本：Xgent Hub 用的是命令行版 Codex（npm 装的），它不会跟着桌面版自动更新。版本旧时 OpenAI 只给它旧模型，
       // 这里的模型列表就会比桌面版少（两者还共用 ~/.codex/models_cache.json，谁最后跑谁的列表生效）。
-      const versionResult = await runCli(config.codex.bin, ["--version"], 15_000, { preferCmdShim: true });
+      const versionResult = await runCli(config.codex.bin, ["--version"], 15_000, { preferCmdShim: true, env: codexEnv });
       const cliVersion = parseCodexVersion(`${versionResult.stdout}\n${versionResult.stderr}`);
       const [npmLatest, desktopVersion] = await Promise.all([latestCodexOnNpm(), desktopCodexVersion()]);
       const newer = [npmLatest, desktopVersion].filter((v): v is string => Boolean(v)).sort((a, b) => compareVersionCore(b, a))[0] ?? null;
@@ -531,21 +570,25 @@ async function diagnoseBuiltin(agentId: string, checks: AgentDiagnosticCheck[], 
         addCheck(checks, "版本", "ok", `配置的是 ${config.claudeCode.configuredBin}，已自动改用最新版本 ${config.claudeCode.bin}`);
       }
       // 登录状态要单独查：查用量的 `claude -p /usage` 不登录也能返回本地统计，光看它会把"登录过期"误判成正常。
-      const auth = await runCli(config.claudeCode.bin, ["auth", "status", "--json"], 20_000);
+      if (accountHome) addCheck(checks, "账号目录", "ok", accountHome);
+      if (account?.authMode === "apikey") addCheck(checks, "API Key", "ok", account.baseUrl ? `走中转站 ${account.baseUrl}（Key ···${account.apiKeyHint}）` : `官方 API（Key ···${account.apiKeyHint}）`);
+      const auth = await runCli(config.claudeCode.bin, ["auth", "status", "--json"], 20_000, { env: claudeEnv });
       let loggedIn: boolean | null = null;
       let authMethod = "";
+      let who = "";
       try {
         const parsed = JSON.parse(stripAnsi(auth.stdout).trim());
         loggedIn = Boolean(parsed?.loggedIn);
         authMethod = String(parsed?.authMethod ?? "");
+        who = [parsed?.email, parsed?.subscriptionType].filter((part) => typeof part === "string" && part).join("，");
       } catch {
         loggedIn = null;
       }
       if (loggedIn) {
-        addCheck(checks, "登录状态", "ok", authMethod ? `已登录（${authMethod}）` : "已登录");
+        addCheck(checks, "登录状态", "ok", `已登录（${[authMethod, who].filter(Boolean).join("：") || "未知方式"}）`);
       } else if (loggedIn === false) {
         addCheck(checks, "登录状态", "error", "没有登录，或者登录已过期。Claude Code 的任务和聊天现在都会失败。");
-        nextSteps.push(`重新登录 Claude Code：在 PowerShell 运行 ${claudeLoginCommand()}，在打开的浏览器里登录，完成后点「重新探测」。`);
+        nextSteps.push(`重新登录 Claude Code：点上面「账号」里的「登录 Claude 账号」，或在 PowerShell 运行 ${claudeLoginCommand(accountHome)}，在打开的浏览器里登录，完成后点「重新探测」。`);
       } else {
         addCheck(checks, "登录状态", "warn", stripAnsi(`${auth.stdout}\n${auth.stderr}`).trim().slice(0, 300) || "无法确认 Claude Code 登录状态");
       }
@@ -557,6 +600,7 @@ async function diagnoseBuiltin(agentId: string, checks: AgentDiagnosticCheck[], 
         nextSteps.push("安装 Antigravity CLI：在 PowerShell 运行 irm https://antigravity.google/cli/install.ps1 | iex，或在配置里填写 agy.exe 的完整路径。");
         return true;
       }
+      if (account?.email) addCheck(checks, "当前账号", "ok", `${account.email}（Antigravity 一台电脑只能登录一个账号）`);
       if (config.antigravity.defaultModel) addCheck(checks, "默认模型", "ok", config.antigravity.defaultModel);
       break;
     }
@@ -659,14 +703,20 @@ export async function diagnoseAgent(agentId: string): Promise<AgentDiagnostics> 
   const nextSteps: string[] = [];
 
   // CLI 类 Agent 没装 CLI 时 configured=false，但配置本身没错，标成"需配置"，真正的错误由下面的 CLI 检查给出。
+  // 另外添加的 Codex 账号跟内置 Codex 走同一套检查，只是换成自己的账号目录。
+  // 另外添加的 Claude Code 账号同理；accountHome 是要额外带上的账号目录（默认 Claude 账号不用带）。
+  const codexHome = codexHomeForAgent(agentId);
+  const isClaude = Boolean(claudeHomeForAgent(agentId));
+  const builtinKey = codexHome ? "codex" : isClaude ? "claude-code" : agentId;
+  const accountHome = codexHome ?? getClaudeAccount(agentId)?.home ?? null;
   const cliKinds = new Set(["codex", "claude-code", "antigravity", "ark-cli", "openclaw"]);
   addCheck(
     checks,
     "Agent 配置",
-    descriptor.configured ? "ok" : cliKinds.has(agentId) ? "warn" : "error",
+    descriptor.configured ? "ok" : cliKinds.has(builtinKey) ? "warn" : "error",
     descriptor.configHint || "无额外配置"
   );
-  const cliMissing = await diagnoseBuiltin(agentId, checks, nextSteps);
+  const cliMissing = await diagnoseBuiltin(builtinKey, checks, nextSteps, accountHome, descriptor.account, isClaude ? claudeEnvForAgent(agentId) : undefined);
   await diagnoseCustom(agentId, checks, nextSteps);
 
   // CLI 都找不到时，模型列表、用量这些查询要么查不到、要么返回写死的默认值，显示出来只会是假的"正常"。
@@ -678,7 +728,7 @@ export async function diagnoseAgent(agentId: string): Promise<AgentDiagnostics> 
         // 没配置好（比如中转站没填 Key）时用量查询只会返回一句固定说明，不能算"正常"。
         descriptor.configured ? collectUsage(checks, agentId) : Promise.resolve(undefined),
       ]);
-  const setupSteps = buildSetupSteps(agentId, checks, models, subAgents, cliMissing);
+  const setupSteps = buildSetupSteps(builtinKey, checks, models, subAgents, cliMissing, accountHome);
 
   if (!nextSteps.length) nextSteps.push("当前没有必须处理的问题，可以直接创建任务测试。");
 

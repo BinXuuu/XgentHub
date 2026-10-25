@@ -1,4 +1,4 @@
-import type { AgentKind, ApprovalDecision, FileChange, McpTransport, ModelOption, PermissionMode, RiskLevel, KnowledgeEntry } from "../types.ts";
+import type { AgentAccountInfo, AgentKind, ApprovalDecision, FileChange, McpTransport, ModelOption, PermissionMode, RiskLevel, KnowledgeEntry } from "../types.ts";
 
 /** 精简给 adapter 用的 MCP server 描述；name 已经按 AgentHub 的命名规则加好前缀，可以直接当 CLI 里的注册名用。 */
 export interface McpServerSpec {
@@ -101,6 +101,8 @@ export interface AgentAdapter {
   readonly roleInfo?: RoleInfo;
   /** 不指定模型时这个 Agent 实际会用的模型（.env 默认值 / Agent 自己的配置）；说不准就返回 null。 */
   defaultModel?(): string | null;
+  /** 这个 Agent 当前登录的账号（目前只有 Codex 实现）。 */
+  account?(): AgentAccountInfo;
 
   /** 是否已具备运行所需的配置/可执行文件（用于前端卡片显示“未配置”状态）。 */
   isConfigured(): boolean;

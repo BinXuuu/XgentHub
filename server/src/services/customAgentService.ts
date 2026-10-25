@@ -1,8 +1,8 @@
-import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config.ts";
 import type { AgentConfigField } from "../types.ts";
+import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 export type CustomAgentMode = "api" | "cli";
 export type CustomCliOutputMode = "text" | "json" | "jsonl";
@@ -63,18 +63,12 @@ function now(): string {
 }
 
 function readStore(): CustomAgentDefinition[] {
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonFile<unknown[]>(storePath, [], Array.isArray);
+  return (parsed as any[]);
 }
 
 function writeStore(items: CustomAgentDefinition[]) {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(items, null, 2) + "\n", "utf8");
+  writeJsonAtomic(storePath, items);
 }
 
 function slugify(raw: string): string {

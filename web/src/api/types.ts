@@ -121,6 +121,24 @@ export interface AgentDescriptor {
     skillIds: string[];
   } | null;
   runtime: AgentRuntimeProfile;
+  /** 这个 Agent 登录的账号（Codex、Claude Code、Antigravity）。 */
+  account: AgentAccountInfo | null;
+}
+
+export interface AgentAccountInfo {
+  id: string;
+  name: string;
+  home: string;
+  isDefault: boolean;
+  /** 能不能再添加别的账号（Antigravity 不能）。 */
+  supportsMultiple: boolean;
+  loggedIn: boolean;
+  authMode: "chatgpt" | "claudeai" | "google" | "apikey" | null;
+  email: string | null;
+  plan: string | null;
+  apiKeyHint: string | null;
+  /** 走中转站时的地址。 */
+  baseUrl: string | null;
 }
 
 export type McpTransport = "stdio" | "http";

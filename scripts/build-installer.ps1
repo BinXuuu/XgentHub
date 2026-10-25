@@ -74,7 +74,7 @@ try {
   $quickstart = @"
 # Xgent Hub quick start
 
-1. Install Node.js 22.5+.
+1. Install Node.js 22.13+.
 2. Extract `$releaseLeaf` to the final Xgent Hub folder.
 3. Run install.bat in that folder.
 4. Optional before installing on another machine: run test-install-package.bat against this installer zip from a development checkout.

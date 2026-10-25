@@ -82,6 +82,17 @@ function runFile(file: string, args: string[] = [], timeoutMs = 120_000): Promis
 }
 
 function runPowerShellScript(scriptRelativePath: string, args: string[] = [], timeoutMs = 120_000): Promise<SystemCommandResult> {
+  // 自检、导入导出配置、快捷方式、开机任务这些还只有 Windows 版脚本：其它系统直接说清楚，不去起一个不存在的 powershell.exe。
+  if (process.platform !== "win32") {
+    return Promise.resolve(
+      commandResult(
+        false,
+        "",
+        "这个功能目前只在 Windows 上可用。macOS / Linux 上管理服务用 bash scripts/xgent.sh start|stop|status，开机自启用 bash scripts/service.sh install。",
+        null
+      )
+    );
+  }
   const scriptPath = path.join(root, scriptRelativePath);
   return runFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, ...args], timeoutMs);
 }

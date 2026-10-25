@@ -49,11 +49,11 @@ Xgent Hub 是一个本机 Agent 控制台，把你电脑上装的 coding agent �
 
 ## 环境要求
 
-- Windows 10 或 11
-- [Node.js](https://nodejs.org/) 22.5 或更新版本（用到内置的 `node:sqlite` 和 TypeScript 类型擦除）
+- Windows 10 / 11、macOS（Apple 芯片和 Intel 都行）或 Linux；NAS（飞牛 fnOS、群晖等）推荐用 Docker 版
+- [Node.js](https://nodejs.org/) 22.13 或更新版本（用到内置的 `node:sqlite` 和 TypeScript 类型擦除）；Docker 版不需要
 - 至少一个 Agent：比如 Codex、Claude Code 这类 CLI，本机的 Ollama，或者一个 OpenAI 兼容服务的 API Key
 
-## 安装
+## 安装（Windows）
 
 ```bash
 git clone <本仓库地址> XgentHub
@@ -75,6 +75,48 @@ install.bat -InstallShortcuts -InstallStartupTask -StartAfterInstall
 - `start-prod.bat`：只启动后台服务。浏览器打开 `http://127.0.0.1:4180`，用 `.env` 里 `ADMIN_TOKEN=` 后面那串登录。
 
 第一次打开会进入配置中心向导：环境自检、本机发现（找到已装的 CLI 并把路径写进 `.env`）、添加 Agent、开机启动、创建测试任务。默认工作区会建在 `%USERPROFILE%\XgentHub-Workspace`。
+
+## 安装（macOS / Linux）
+
+```bash
+git clone <本仓库地址> XgentHub
+cd XgentHub
+bash install.sh --service
+```
+
+`install.sh` 会生成 `.env` 和随机登录令牌，运行 `npm ci`、`npm run build`。加 `--service` 会装上开机自启并马上启动：macOS 用 launchd（登录后自动运行，崩溃自动拉起），Linux 用 systemd 用户服务。不想开机自启就用 `--start`，只在后台启动这一次。
+
+装好后浏览器打开 `http://127.0.0.1:4180`，用 `.env` 里 `ADMIN_TOKEN=` 后面那串登录。日常管理：
+
+```bash
+bash scripts/xgent.sh status     # 状态
+bash scripts/xgent.sh restart    # 重启（start / stop 同理）
+bash scripts/xgent.sh logs       # 看日志
+bash scripts/service.sh uninstall  # 取消开机自启
+```
+
+- macOS 上装了 Claude 桌面版的话，会自动找到它自带的 Claude Code，不用另装。
+- Linux 服务器想在没登录时也自动运行，再执行一次 `sudo loginctl enable-linger $USER`。
+- 在线更新和 Windows 一样，点左下角的版本号；失败会自动恢复原版本。
+- 桌面版（Electron）、自检、导入导出配置目前只有 Windows 版，macOS / Linux 用浏览器访问。
+
+## 安装（Docker：NAS / Linux 服务器）
+
+适合飞牛 fnOS、群晖这类 NAS，或者没有图形界面的 Linux 服务器。镜像里已经装好了 Node.js、git、Codex CLI 和 Claude Code CLI。
+
+```bash
+git clone <本仓库地址> XgentHub
+cd XgentHub
+docker compose up -d --build
+docker compose logs xgent   # 第一次启动会在这里打印自动生成的登录令牌
+```
+
+浏览器打开 `http://<NAS 的 IP>:4180`。数据都在 `docker-compose.yml` 旁边的 `xgent-data/` 里：`data/` 是数据库和配置（令牌在 `data/admin-token`），`home/` 是 Codex、Claude Code 的登录信息。
+
+- **项目文件夹**：把 NAS 上的共享文件夹挂到容器的 `/workspaces` 下面（改 `docker-compose.yml` 里的 `volumes`），在 Xgent 里添加工作区时填容器里的路径，比如 `/workspaces/my-project`。
+- **登录 Agent**：NAS 没有屏幕弹不出登录窗口。在 Agent 详情页点「登录」会给出要运行的命令，比如 `docker exec -it -u node xgenthub codex login --device-auth`：在 NAS 的终端里运行，用手机或电脑打开它给的网址、输入验证码就登录好了。也可以用 API Key 登录。
+- **需要代理**：在 `docker-compose.yml` 里填 `HTTPS_PROXY`。
+- **更新**：`git pull && docker compose up -d --build`，数据不受影响。程序里的在线更新按钮在 Docker 版里不可用。
 
 ## 支持的 Agent
 
@@ -138,7 +180,7 @@ install.bat -InstallShortcuts -InstallStartupTask -StartAfterInstall
 
 需要注意：
 
-- 安装程序里只有程序本身，不带 `node_modules`。目标电脑需要先装好 Node.js 22.5+，安装过程中会联网执行 `npm install`。
+- 安装程序里只有程序本身，不带 `node_modules`。目标电脑需要先装好 Node.js 22.13+，安装过程中会联网执行 `npm install`。
 - 安装程序没有数字签名，Windows 可能弹出「已保护你的电脑」，点「更多信息 → 仍要运行」即可。
 - 默认装到 `%LOCALAPPDATA%\Programs\Xgent Hub`，不需要管理员权限；卸载时可以选择保留配置和数据。
 - 没装 NSIS 时脚本不会报错退出，只会生成发布压缩包和一份编译命令，装好 NSIS 后再执行那份命令即可。

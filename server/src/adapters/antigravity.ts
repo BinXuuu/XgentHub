@@ -8,7 +8,8 @@ import { cliAvailable, killProcessTree, resolveCliBinary, spawnCli } from "./win
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { ModelOption } from "../types.ts";
+import type { AgentAccountInfo, ModelOption } from "../types.ts";
+import { readAntigravityAccountInfo } from "../services/antigravityAccountService.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
 const runningAntigravityProcesses = new Map<string, { child: ChildProcess; kill: (reason: string) => void }>();
@@ -673,6 +674,10 @@ export class AntigravityAdapter implements AgentAdapter {
   readonly name = "Antigravity";
   readonly description = "通过本机 agy CLI 的 headless 模式驱动 Antigravity agent";
   readonly supportsMcp = true as const;
+
+  account(): AgentAccountInfo {
+    return readAntigravityAccountInfo();
+  }
 
   isConfigured() {
     return cliAvailable(config.antigravity.bin);

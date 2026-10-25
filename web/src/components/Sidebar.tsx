@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { AgentDescriptor, AgentKind, AgentRole, Host, Workspace } from "../api/types";
 import { api } from "../api/client";
 import { confirmDialog, errorDialog } from "../utils/dialog";
+import { accountLabel, agentDisplayName } from "../utils/agentAccount";
 
 const AGENT_COLORS: Record<AgentKind, string> = {
   mock: "#6b7280",
@@ -226,9 +227,12 @@ function AgentRow({
       <div className={`sidebar-item ${selected ? "selected" : ""}`} title={agent.configHint} onClick={onSelect}>
         <span className="drag-handle" title="拖拽排序" aria-hidden="true" />
         <span className="kind-dot" style={{ background: AGENT_COLORS[agent.kind] }} />
-        <span className="name">{agent.name}</span>
+        <span className="name" title={agent.account ? `${agent.name} · ${accountLabel(agent.account)}` : undefined}>
+          {agentDisplayName(agent)}
+        </span>
         {agent.official && <span className="official-badge">推荐</span>}
         {!agent.configured && <span className="meta">未配置</span>}
+        {agent.configured && agent.account && !agent.account.loggedIn && !agent.account.isDefault && <span className="meta">未登录</span>}
         {agent.supportsUsage && (
           <button
             className="sidebar-meta-button"
@@ -279,10 +283,21 @@ export function Sidebar({
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = useState<string | null>(null);
 
-  const orderedAgents = useMemo(
-    () => orderItems(agents.filter((agent) => !agent.role), agentOrder, DEFAULT_AGENT_ORDER),
-    [agents, agentOrder]
-  );
+  const orderedAgents = useMemo(() => {
+    const ordered = orderItems(agents.filter((agent) => !agent.role), agentOrder, DEFAULT_AGENT_ORDER);
+    // 新加的账号还没被拖过排序时，放在同类 Agent（比如已有的 Codex）后面，而不是跑到列表最上面。
+    const fresh = ordered.filter((agent) => agent.account && !agent.account.isDefault && !agentOrder.includes(agent.id));
+    if (fresh.length === 0) return ordered;
+    const rest = ordered.filter((agent) => !fresh.includes(agent));
+    for (const account of fresh) {
+      let anchor = rest.length - 1;
+      rest.forEach((agent, index) => {
+        if (agent.kind === account.kind) anchor = index;
+      });
+      rest.splice(anchor + 1, 0, account);
+    }
+    return rest;
+  }, [agents, agentOrder]);
   const baseNames = useMemo(() => new Map(agents.map((agent) => [agent.id, agent.name])), [agents]);
   const orderedWorkspaces = useMemo(() => orderItems(workspaces, workspaceOrder), [workspaces, workspaceOrder]);
 
@@ -361,7 +376,7 @@ export function Sidebar({
         <button
           className="btn btn-ghost btn-sm"
           onClick={onCreateAgentRequested}
-          title="新增自定义 Agent"
+          title="新增 Agent 或登录账号"
         >
           +
         </button>

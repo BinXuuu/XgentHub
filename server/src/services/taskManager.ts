@@ -1,7 +1,9 @@
+import fs from "node:fs";
 import { nanoid } from "nanoid";
 import { db } from "../db/index.ts";
 import { bus } from "../eventBus.ts";
 import { getAdapter, isProtectedAgent, listAdapters, toDescriptor } from "../adapters/registry.ts";
+import { runtimeKindFromAgentKind } from "../adapters/runtimeMetadata.ts";
 import { recordAudit } from "./auditService.ts";
 import {
   ensurePrimarySubtask,
@@ -50,6 +52,7 @@ import {
 import type { AgentAdapter, TaskRuntimeContext } from "../adapters/types.ts";
 import type {
   AgentDescriptor,
+  AgentKind,
   AgentRequestSource,
   Approval,
   ApprovalDecision,
@@ -223,6 +226,19 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
       }
     );
   });
+}
+
+/** 任务原来用的 Agent 不在了（账号或自定义 Agent 被删）：告诉用户可以换一个，而不是只报"未知 agent"。 */
+function missingAgentMessage(agentId: string): string {
+  return `这个任务原来用的 Agent（${agentId}）已经被删除了。可以在任务页点「切换 Agent」，换一个 Agent 继续。`;
+}
+
+/** 本机 CLI 类 Agent 要在工作区文件夹里跑；文件夹不在了就返回给用户看的说明，否则返回 null。纯 API 类 Agent 不受影响。 */
+function missingWorkspaceMessage(kind: AgentKind, workspacePath: string): string | null {
+  const runtime = runtimeKindFromAgentKind(kind);
+  if (runtime !== "cli" && runtime !== "custom") return null;
+  if (fs.existsSync(workspacePath)) return null;
+  return `工作区文件夹不存在：${workspacePath}。它可能被移动、改名或删除了。请把文件夹放回原处，或在左侧工作区里删掉它、用新路径重新添加后再试。`;
 }
 
 class TaskManager {
@@ -674,14 +690,27 @@ class TaskManager {
   /** 启动一轮：登记为正在跑，结束后注销并处理排队消息。所有启动 Agent 的地方都走这里，停止才能停全。 */
   private launch(taskId: string, runId: string, adapter: AgentAdapter, ctx: TaskRuntimeContext, start: () => Promise<void>, failLabel: string): void {
     this.trackRun(taskId, runId, adapter, ctx);
-    void start()
+    // 工作区文件夹被移走或删掉时，CLI 一启动就报 ENOENT，各个 Agent 会把它说成"找不到 codex，请安装"，误导人。先拦下来说清楚。
+    const missing = missingWorkspaceMessage(adapter.kind, ctx.workspacePath);
+    const run = missing
+      ? async () => {
+          ctx.agentMessage(missing);
+          ctx.setStatus("failed");
+        }
+      : start;
+    void run()
       .catch((err) => {
         ctx.log(`${failLabel}：${(err as Error).message}`);
         this.setStatus(taskId, "failed", runId, (err as Error).message);
       })
       .finally(() => {
         this.untrackRun(taskId, runId);
-        this.tryAdvanceQueue(taskId);
+        // 一轮结束得晚（比如停止后 Agent 还在收尾）时任务可能已被删、服务可能正在关闭：这里出错只记日志，不能变成没人接的异常。
+        try {
+          this.tryAdvanceQueue(taskId);
+        } catch (err) {
+          console.warn(`[task ${taskId}] 处理排队消息失败：${(err as Error).message}`);
+        }
       });
   }
 
@@ -907,6 +936,8 @@ class TaskManager {
     if (workspace.allowedAgentKinds.length > 0 && !workspace.allowedAgentKinds.includes(adapter.kind)) {
       throw new Error(`workspace "${workspace.name}" 未授权 agent "${adapter.kind}"`);
     }
+    const missing = missingWorkspaceMessage(adapter.kind, workspace.path);
+    if (missing) throw new Error(missing);
 
     const images = input.images ?? [];
     const prompt = input.prompt?.trim() ?? "";
@@ -1233,7 +1264,7 @@ class TaskManager {
   sendMessage(taskId: string, message: string, images: string[], actor: string): void {
     const task = this.getTask(taskId);
     if (!task) throw new Error(`未知任务: ${taskId}`);
-    if (!getAdapter(task.agentId)) throw new Error(`未知 agent: ${task.agentId}`);
+    if (!getAdapter(task.agentId)) throw new Error(missingAgentMessage(task.agentId));
     this.dispatchContinue(taskId, message, images, actor);
   }
 
@@ -1610,7 +1641,7 @@ class TaskManager {
     if (task.status === "running" || task.status === "needs_approval") {
       throw new Error("任务正在运行或等待审批，请先停止或处理审批后再重试");
     }
-    if (!getAdapter(task.agentId)) throw new Error(`未知 agent: ${task.agentId}`);
+    if (!getAdapter(task.agentId)) throw new Error(missingAgentMessage(task.agentId));
 
     const plan = orchestrator.planRetry(taskId, {
       maxAttempts: 50,
@@ -1893,6 +1924,38 @@ class TaskManager {
       this.setStatus(taskId, "stopped");
     }
     this.cancelPendingApprovals(taskId, "任务已停止，这条审批自动取消");
+  }
+
+  /**
+   * 服务启动时调用：上次服务停掉（关机、崩溃、Ctrl+C、更新重启）时还在跑的任务，Agent 进程已经没了，
+   * 但数据库里还记着"运行中 / 等审批"，界面会一直转圈、审批按钮点了也没用。这里统一改成"已停止"并留一条说明。
+   * 只改状态，不重新执行：中断的那一轮可能已经跑过一半命令，自动重放可能重复产生副作用，交给用户决定继续还是重试。
+   * 排队中、还没开始的子任务和排队消息保持原样。
+   */
+  recoverInterruptedWork(): { tasks: number; runs: number; approvals: number } {
+    const reason = "Xgent 服务重启时这一轮还没跑完，已中断";
+    const runs = db
+      .prepare("SELECT id, task_id FROM task_runs WHERE status IN ('running', 'needs_approval', 'waiting') AND finished_at IS NULL")
+      .all() as { id: string; task_id: string }[];
+    for (const run of runs) orchestrator.stopRun({ taskId: run.task_id, runId: run.id, reason });
+    // 子任务的运行记录可能已经结束、子任务本身却还挂着运行中（比如派发到一半）：一并改掉。
+    db.prepare("UPDATE subtasks SET status = 'stopped', updated_at = ? WHERE status IN ('running', 'needs_approval')").run(now());
+
+    const tasks = db.prepare("SELECT id FROM tasks WHERE status IN ('running', 'needs_approval')").all() as { id: string }[];
+    let approvals = 0;
+    for (const { id } of tasks) {
+      approvals += (db.prepare("SELECT COUNT(*) AS c FROM approvals WHERE task_id = ? AND status = 'pending'").get(id) as { c: number }).c;
+      this.cancelPendingApprovals(id, "Xgent 服务重启过，这条审批已失效；需要的话请重新发起");
+      db.prepare("UPDATE tasks SET status = 'stopped', updated_at = ? WHERE id = ?").run(now(), id);
+      this.recordSystemMessage(id, `${reason}。Agent 当时的进程已经不在了，做到一半的改动可能已经写进工作区。可以发消息让它接着做，或者看「文件 / Diff」确认后再决定。`);
+    }
+    // 不属于运行中任务、却还挂着的审批（理论上不该有）也清掉，免得审批页留着点不动的按钮。
+    const orphanTaskIds = db.prepare("SELECT DISTINCT task_id FROM approvals WHERE status = 'pending'").all() as { task_id: string }[];
+    for (const { task_id } of orphanTaskIds) {
+      approvals += (db.prepare("SELECT COUNT(*) AS c FROM approvals WHERE task_id = ? AND status = 'pending'").get(task_id) as { c: number }).c;
+      this.cancelPendingApprovals(task_id, "Xgent 服务重启过，这条审批已失效；需要的话请重新发起");
+    }
+    return { tasks: tasks.length, runs: runs.length, approvals };
   }
 
   /**

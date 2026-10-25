@@ -1,22 +1,16 @@
-import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.ts";
+import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 const storePath = path.join(config.dataDir, "hidden-agents.json");
 
 function readHiddenIds(): string[] {
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonFile<unknown[]>(storePath, [], Array.isArray);
+  return (parsed as any[]).filter((item) => typeof item === "string");
 }
 
 function writeHiddenIds(ids: string[]) {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify([...new Set(ids)].sort(), null, 2) + "\n", "utf8");
+  writeJsonAtomic(storePath, [...new Set(ids)].sort());
 }
 
 export function isAgentHidden(agentId: string): boolean {

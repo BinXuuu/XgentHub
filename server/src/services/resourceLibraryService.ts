@@ -1,10 +1,10 @@
-import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config.ts";
 import { db } from "../db/index.ts";
 import type { ResourceLibraryItem, ResourceLibraryKind } from "../types.ts";
 import { tokenizeForMatch as tokenize } from "./textMatch.ts";
+import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 const storePath = path.join(config.dataDir, "resource-library.json");
 
@@ -20,18 +20,12 @@ function now(): string {
 }
 
 function readStore(): ResourceLibraryItem[] {
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonFile<unknown[]>(storePath, [], Array.isArray);
+  return (parsed as any[]);
 }
 
 function writeStore(items: ResourceLibraryItem[]) {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(items, null, 2) + "\n", "utf8");
+  writeJsonAtomic(storePath, items);
 }
 
 function normalizeTags(tags: string[] | undefined): string[] {

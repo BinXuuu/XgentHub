@@ -8,6 +8,14 @@ import { getAdapter, isProtectedAgent } from "../adapters/registry.ts";
 import { createCustomAgent, deleteCustomAgent, getCustomAgent, type CreateCustomAgentInput } from "../services/customAgentService.ts";
 import { hideAgent } from "../services/agentVisibilityService.ts";
 import { diagnoseAgent } from "../services/agentDiagnosticsService.ts";
+import {
+  clearAgentApiKey,
+  createAgentAccount,
+  deleteAgentAccount,
+  loginAgentAccount,
+  logoutAgentAccount,
+  renameAgentAccount,
+} from "../services/agentAccountService.ts";
 
 export function registerAgentRoutes(app: FastifyInstance) {
   app.get("/api/agents", { preHandler: requireAuth }, async () => {
@@ -17,6 +25,42 @@ export function registerAgentRoutes(app: FastifyInstance) {
   app.post<{ Body: CreateCustomAgentInput }>("/api/agents/custom", { preHandler: requireAuth }, async (req) => {
     const created = createCustomAgent(req.body ?? { template: "api" });
     return toDescriptor(createCustomAdapter(created));
+  });
+
+  // ---- 账号：Codex、Claude Code 每个账号一个独立的配置目录；Antigravity 只有一个账号 ----
+  app.post<{ Body: { kind?: string; name?: string; copyConfig?: boolean } }>("/api/agents/accounts", { preHandler: requireAuth }, async (req) => {
+    const created = createAgentAccount(req.body ?? {});
+    const adapter = getAdapter(created.id);
+    if (!adapter) throw new Error("账号创建失败");
+    return toDescriptor(adapter);
+  });
+
+  app.put<{ Params: { id: string }; Body: { name?: string } }>("/api/agents/:id/account", { preHandler: requireAuth }, async (req) => {
+    renameAgentAccount(req.params.id, req.body?.name ?? "");
+    taskManager.invalidateOptions(req.params.id);
+    return toDescriptor(getAdapter(req.params.id)!);
+  });
+
+  app.post<{ Params: { id: string }; Body: { method?: "browser" | "apikey"; apiKey?: string; baseUrl?: string } }>(
+    "/api/agents/:id/account-login",
+    { preHandler: requireAuth },
+    async (req) => {
+      const result = await loginAgentAccount(req.params.id, getAdapter(req.params.id)?.name ?? req.params.id, req.body ?? {});
+      taskManager.invalidateOptions(req.params.id);
+      return { ok: true, ...result };
+    }
+  );
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/account-logout", { preHandler: requireAuth }, async (req) => {
+    await logoutAgentAccount(req.params.id);
+    taskManager.invalidateOptions(req.params.id);
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/agents/:id/account-api-key", { preHandler: requireAuth }, async (req) => {
+    clearAgentApiKey(req.params.id);
+    taskManager.invalidateOptions(req.params.id);
+    return { ok: true };
   });
 
   app.get<{ Params: { id: string } }>("/api/agents/:id/config", { preHandler: requireAuth }, async (req) => {
@@ -59,6 +103,11 @@ export function registerAgentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "推荐接入不能删除或隐藏" });
     }
     const custom = getCustomAgent(req.params.id);
+    const accountHome = deleteAgentAccount(req.params.id);
+    if (accountHome) {
+      taskManager.invalidateOptions(req.params.id);
+      return { ok: true, home: accountHome };
+    }
     if (custom) {
       deleteCustomAgent(req.params.id);
     } else {

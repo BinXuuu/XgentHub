@@ -13,6 +13,8 @@ import { createCustomAdapter } from "./custom.ts";
 import { getRuntimeProfile } from "./runtimeMetadata.ts";
 import type { AgentDescriptor } from "../types.ts";
 import { listCustomAgents } from "../services/customAgentService.ts";
+import { getCodexAccount, listCodexAccounts } from "../services/codexAccountService.ts";
+import { getClaudeAccount, listClaudeAccounts } from "../services/claudeAccountService.ts";
 import { getRole, listRoles, roleIdFromAgentId } from "../services/roleService.ts";
 import { RoleAdapter } from "./role.ts";
 
@@ -47,10 +49,34 @@ const adapters: AgentAdapter[] = [
 
 const byId = new Map<string, AgentAdapter>(adapters.map((a) => [a.id ?? a.kind, a]));
 
-/** 内置 + 自定义 Agent，不含角色——角色的底座只能是它们，角色不能套角色。 */
+// 另外添加的 Codex / Claude Code 账号：每个账号一个 adapter，按账号目录区分。实例按 id 缓存，改名后重建。
+interface AccountRecord {
+  id: string;
+  name: string;
+  home: string;
+}
+const accountAdapters = new Map<string, { key: string; adapter: AgentAdapter }>();
+
+function accountAdapter(account: AccountRecord, create: (account: AccountRecord) => AgentAdapter): AgentAdapter {
+  const key = `${account.name}|${account.home}`;
+  const cached = accountAdapters.get(account.id);
+  if (cached?.key === key) return cached.adapter;
+  const adapter = create(account);
+  accountAdapters.set(account.id, { key, adapter });
+  return adapter;
+}
+
+const newCodexAccount = (account: AccountRecord) => new CodexAdapter(account);
+const newClaudeAccount = (account: AccountRecord) => new ClaudeCodeAdapter(account);
+
+/** 内置 + 账号 + 自定义 Agent，不含角色——角色的底座只能是它们，角色不能套角色。 */
 function getBaseAdapter(agentId: string): AgentAdapter | undefined {
   const builtin = byId.get(agentId);
   if (builtin) return builtin;
+  const codexAccount = getCodexAccount(agentId);
+  if (codexAccount) return accountAdapter(codexAccount, newCodexAccount);
+  const claudeAccount = getClaudeAccount(agentId);
+  if (claudeAccount) return accountAdapter(claudeAccount, newClaudeAccount);
   const custom = listCustomAgents().find((agent) => agent.id === agentId);
   return custom ? createCustomAdapter(custom) : undefined;
 }
@@ -65,7 +91,12 @@ export function getAdapter(agentId: string): AgentAdapter | undefined {
 }
 
 export function listBaseAdapters(): AgentAdapter[] {
-  return [...adapters, ...listCustomAgents().map(createCustomAdapter)];
+  // 账号紧跟在同类的内置 Agent 后面。
+  const extra: Partial<Record<string, AgentAdapter[]>> = {
+    codex: listCodexAccounts().map((account) => accountAdapter(account, newCodexAccount)),
+    "claude-code": listClaudeAccounts().map((account) => accountAdapter(account, newClaudeAccount)),
+  };
+  return [...adapters.flatMap((a) => [a, ...(a.id ? [] : extra[a.kind] ?? [])]), ...listCustomAgents().map(createCustomAdapter)];
 }
 
 /** 停用的角色不出现在可选列表里，但 getAdapter 仍能解析，已有任务照常继续。 */
@@ -103,6 +134,8 @@ export function toDescriptor(a: AgentAdapter): AgentDescriptor {
     defaultModel: a.defaultModel?.() || null,
     enforcesPlanMode: Boolean(a.enforcesPlanMode),
     role: a.roleInfo ?? null,
-    runtime: getRuntimeProfile(a.kind),
+    // 能不能停按 Agent 实际有没有实现 stop() 算，不靠手写的静态表（以前 Codex / Claude Code 明明能停，表里却写着不能）。
+    runtime: { ...getRuntimeProfile(a.kind), supportsStop: Boolean(a.stop) },
+    account: a.account?.() ?? null,
   };
 }

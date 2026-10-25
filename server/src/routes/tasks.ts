@@ -1,3 +1,4 @@
+import { textField } from "./validation.ts";
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth.ts";
 import { taskManager } from "../services/taskManager.ts";
@@ -96,7 +97,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
   app.get("/api/tasks", { preHandler: requireAuth }, async () => taskManager.listTasks());
 
   app.post<{ Body: PlanSubtasksBody }>("/api/tasks/plan-subtasks", { preHandler: requireAuth }, async (req, reply) => {
-    const prompt = req.body?.prompt?.trim();
+    const prompt = textField(req.body?.prompt, "prompt");
     if (!prompt) {
       reply.code(400);
       return { error: "prompt 为必填项" };
@@ -110,8 +111,8 @@ export function registerTaskRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: PlanMultiAgentBody }>("/api/tasks/plan-multi-agent", { preHandler: requireAuth }, async (req, reply) => {
-    const prompt = req.body?.prompt?.trim();
-    const plannerAgentId = req.body?.plannerAgentId?.trim();
+    const prompt = textField(req.body?.prompt, "prompt");
+    const plannerAgentId = textField(req.body?.plannerAgentId, "plannerAgentId");
     if (!prompt || !plannerAgentId) {
       reply.code(400);
       return { error: "prompt / plannerAgentId 均为必填项" };
@@ -179,7 +180,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
   });
 
   app.put<{ Params: { id: string }; Body: RenameTaskBody }>("/api/tasks/:id", { preHandler: requireAuth }, async (req, reply) => {
-    const title = req.body?.title?.trim();
+    const title = textField(req.body?.title, "title");
     if (!title) {
       reply.code(400);
       return { error: "title 为必填项" };
@@ -193,7 +194,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
   });
 
   app.put<{ Params: { id: string }; Body: RenameTaskBody }>("/api/tasks/:id/title", { preHandler: requireAuth }, async (req, reply) => {
-    const title = req.body?.title?.trim();
+    const title = textField(req.body?.title, "title");
     if (!title) {
       reply.code(400);
       return { error: "title 为必填项" };
@@ -211,7 +212,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
   );
 
   app.put<{ Params: { id: string }; Body: ChangeWorkspaceBody }>("/api/tasks/:id/workspace", { preHandler: requireAuth }, async (req, reply) => {
-    const workspaceId = req.body?.workspaceId?.trim();
+    const workspaceId = textField(req.body?.workspaceId, "workspaceId");
     if (!workspaceId) {
       reply.code(400);
       return { error: "workspaceId 为必填项" };
@@ -379,7 +380,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
     "/api/tasks/:id/messages",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const message = req.body?.message?.trim();
+      const message = textField(req.body?.message, "message");
       const images = req.body?.images ?? [];
       if (!message && images.length === 0) {
         reply.code(400);
@@ -404,7 +405,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
     "/api/tasks/:id/queue",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const content = req.body?.content?.trim();
+      const content = textField(req.body?.content, "content");
       const images = req.body?.images ?? [];
       if (!content && images.length === 0) {
         reply.code(400);
@@ -475,8 +476,8 @@ export function registerTaskRoutes(app: FastifyInstance) {
     "/api/tasks/:id/agent-handoff",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const agentId = req.body?.agentId?.trim();
-      const prompt = req.body?.prompt?.trim();
+      const agentId = textField(req.body?.agentId, "agentId");
+      const prompt = textField(req.body?.prompt, "prompt");
       if (!agentId || !prompt) {
         reply.code(400);
         return { error: "agentId / prompt 为必填项" };

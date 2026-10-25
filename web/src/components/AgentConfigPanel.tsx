@@ -13,17 +13,21 @@ import type {
 import { api } from "../api/client";
 import { copyText } from "../utils/clipboard";
 import { confirmDialog } from "../utils/dialog";
+import { agentDisplayName } from "../utils/agentAccount";
+import { AccountSection } from "./AccountSection";
 
 interface Props {
   agent: AgentDescriptor;
   onBack: () => void;
-  onAgentsChanged: () => void;
+  onAgentsChanged: () => unknown;
+  onAgentCreated: (agent: AgentDescriptor) => void;
   onDeleted: () => void;
 }
 
 type GatewaySettingInputKey = Exclude<keyof GatewayBillingSettings, "modelPriceRules">;
 
-export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: Props) {
+export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreated, onDeleted }: Props) {
+  const isAddedAccount = Boolean(agent.account && !agent.account.isDefault);
   const [config, setConfig] = useState<AgentConfigResponse | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -299,10 +303,12 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: 
       setError("推荐接入不能删除或隐藏。");
       return;
     }
-    const action = agent.custom ? "删除自定义 Agent" : "从左侧列表隐藏内置 Agent";
-    const note = agent.custom
-      ? "已有任务记录不会删除，但这个接入将不再出现在列表里。"
-      : "已有任务记录不会删除；如果以后想恢复，需要从数据文件恢复隐藏项或重新加一个自定义 Agent。";
+    const action = isAddedAccount ? "删除账号" : agent.custom ? "删除自定义 Agent" : "从左侧列表隐藏内置 Agent";
+    const note = isAddedAccount
+      ? `已有任务记录不会删除。账号目录（含登录信息）会留在 ${agent.account!.home}，不需要的话可以自己删掉。`
+      : agent.custom
+        ? "已有任务记录不会删除，但这个接入将不再出现在列表里。"
+        : "已有任务记录不会删除；如果以后想恢复，需要从数据文件恢复隐藏项或重新加一个自定义 Agent。";
     if (!(await confirmDialog(note, { title: `${action}「${agent.name}」？`, danger: true, confirmText: agent.custom ? "删除" : "隐藏" }))) return;
     setDeleting(true);
     setError(null);
@@ -324,7 +330,7 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: 
             ← 返回
           </button>
           <div className="agent-config-title-block">
-            <h2>{agent.name} 配置</h2>
+            <h2>{agentDisplayName(agent)} 配置</h2>
             <div className="agent-config-title-badges">
               {agent.official && <span className="official-badge">推荐</span>}
               <span className={`config-state ${agent.configured ? "ok" : "warn"}`}>{agent.configured ? "已配置" : "未配置"}</span>
@@ -567,6 +573,15 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: 
           </section>
         )}
 
+        {agent.account && !agent.role && (
+          <AccountSection
+            agent={agent}
+            onAgentsChanged={onAgentsChanged}
+            onAgentCreated={onAgentCreated}
+            onLoginChanged={refreshDiagnostics}
+          />
+        )}
+
         <section className="config-section diagnostic-section">
           <div className="config-section-head">
             <div>
@@ -789,14 +804,16 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onDeleted }: 
               <div>
                 <h3>危险操作</h3>
                 <p>
-                  {agent.custom
+                  {isAddedAccount
+                    ? "删除这个账号。历史任务记录会保留；账号目录不会自动删除。"
+                    : agent.custom
                     ? "删除这个自定义 Agent。历史任务记录会保留，但它不会再出现在左侧 Agent 列表里。"
                     : "隐藏这个内置 Agent。历史任务记录会保留，但它不会再出现在左侧 Agent 列表里。"}
                 </p>
               </div>
               <div className="config-tools">
                 <button className="btn btn-danger btn-sm" onClick={removeAgent} disabled={deleting}>
-                  {deleting ? "处理中..." : agent.custom ? "删除 Agent" : "隐藏 Agent"}
+                  {deleting ? "处理中..." : isAddedAccount ? "删除账号" : agent.custom ? "删除 Agent" : "隐藏 Agent"}
                 </button>
               </div>
             </div>

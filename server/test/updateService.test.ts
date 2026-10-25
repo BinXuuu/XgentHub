@@ -1,6 +1,10 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { setupIsolatedDb } from "./helpers/testEnv.ts";
 
@@ -72,12 +76,26 @@ test("a missing or private repository gives a clear message instead of crashing"
 
 test("the development repository is never updated automatically", async () => {
   delete process.env.AGENTHUB_UPDATE_MODE;
-  // 测试跑在开发仓库里：有 .git，但没有关联到 test/xgent。
-  const mode = updates.detectInstallMode();
-  assert.equal(mode.mode, "dev");
-  assert.match(mode.reason ?? "", /开发用的项目/);
+  // 用临时仓库判断，不依赖测试代码本身放在哪（GitHub CI 拉下来的就是开源仓库，传到别的机器上的可能没有 .git）。
+  const repo = (origin: string | null) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xgent-mode-"));
+    if (origin !== null) {
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir });
+    }
+    return dir;
+  };
+  const dev = updates.detectInstallMode(repo("https://github.com/someone/my-fork.git"));
+  assert.equal(dev.mode, "dev");
+  assert.match(dev.reason ?? "", /开发用的项目/);
+  assert.equal(updates.detectInstallMode(repo("https://github.com/test/xgent.git")).mode, "git");
+  assert.equal(updates.detectInstallMode(repo("git@github.com:test/xgent.git")).mode, "git");
+  assert.equal(updates.detectInstallMode(repo(null)).mode, "archive");
+
+  process.env.AGENTHUB_UPDATE_MODE = "dev";
   tags = [{ name: "v99.0.0" }];
-  await assert.rejects(updates.startUpdate(), /开发用的项目/);
+  await assert.rejects(updates.startUpdate(), /关闭自动更新/);
+  delete process.env.AGENTHUB_UPDATE_MODE;
 });
 
 test("refuses to update while a task is still running", async () => {

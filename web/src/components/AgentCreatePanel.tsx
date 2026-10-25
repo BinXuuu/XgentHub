@@ -4,12 +4,19 @@ import { api } from "../api/client";
 
 type CustomTemplate = CreateCustomAgentInput["template"];
 
+type AccountKind = "codex" | "claude-code";
+
+const ACCOUNT_KINDS: { value: AccountKind; label: string; desc: string }[] = [
+  { value: "codex", label: "Codex 账号", desc: "再登录一个 ChatGPT 账号或 OpenAI API Key" },
+  { value: "claude-code", label: "Claude Code 账号", desc: "再登录一个 Claude 订阅账号，或用 API Key / 中转站" },
+];
+
 const CUSTOM_TEMPLATES: { value: CustomTemplate; label: string; desc: string }[] = [
   { value: "api", label: "API / 中转站", desc: "OpenAI 兼容接口：Base URL + API Key + 模型名" },
   { value: "cli", label: "通用 CLI", desc: "任意本机命令，通过参数模板把任务交给它" },
-  { value: "codex-cli", label: "Codex CLI", desc: "预填 codex exec 模板，可继续改参数" },
+  { value: "codex-cli", label: "Codex CLI（高级）", desc: "自己写 codex 命令参数模板；不是添加登录账号，加账号用最上面的「添加登录账号」" },
   { value: "openclaw-cli", label: "OpenClaw CLI", desc: "预填 openclaw agent 模板；内置 OpenClaw 已在左侧，这里用于创建自定义副本" },
-  { value: "claude-code-cli", label: "Claude Code CLI", desc: "预填 claude headless 模板，可手动选择模型" },
+  { value: "claude-code-cli", label: "Claude Code CLI（高级）", desc: "自己写 claude 命令参数模板；不是添加登录账号，加账号用最上面的「添加登录账号」" },
   { value: "antigravity-cli", label: "Antigravity CLI", desc: "预填 agy headless 模板，只需要选模型" },
 ];
 
@@ -85,6 +92,10 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
   const [discovery, setDiscovery] = useState<MachineConfigDiscovery | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [accountKind, setAccountKind] = useState<AccountKind>("codex");
+  const [accountName, setAccountName] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const selectedTemplate = CUSTOM_TEMPLATES.find((item) => item.value === template);
   const isApi = template === "api";
 
@@ -123,6 +134,20 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
     setError(null);
   }
 
+  async function submitAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setAddingAccount(true);
+    setAccountError(null);
+    try {
+      const created = await api.createAgentAccount({ kind: accountKind, name: accountName.trim() || undefined, copyConfig: true });
+      onCreated(created);
+    } catch (err) {
+      setAccountError((err as Error).message);
+    } finally {
+      setAddingAccount(false);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -153,6 +178,42 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
       </div>
 
       <div className="agent-config-content">
+        <section className="config-section">
+          <div className="config-section-head">
+            <div>
+              <h3>添加登录账号</h3>
+              <p>
+                想同时用多个 Codex / Claude Code 账号，在这里加。每个账号有自己独立的登录、额度和会话记录，加好后在它的详情页登录。
+              </p>
+            </div>
+          </div>
+          <div className="agent-template-grid">
+            {ACCOUNT_KINDS.map((item) => (
+              <button
+                className={`agent-template-card ${accountKind === item.value ? "selected" : ""}`}
+                key={item.value}
+                type="button"
+                onClick={() => setAccountKind(item.value)}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.desc}</span>
+              </button>
+            ))}
+          </div>
+          <form className="account-create-row" onSubmit={submitAccount}>
+            <input
+              className="field"
+              placeholder="账号名，比如：工作号（留空自动起名）"
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+            />
+            <button className="btn btn-primary" type="submit" disabled={addingAccount}>
+              {addingAccount ? "添加中..." : `添加 ${ACCOUNT_KINDS.find((item) => item.value === accountKind)?.label}，去登录`}
+            </button>
+          </form>
+          {accountError && <div className="login-error">{accountError}</div>}
+        </section>
+
         <section className="config-section">
           <div className="config-section-head">
             <div>

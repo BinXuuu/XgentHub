@@ -21,7 +21,7 @@ function DialogCard({ request }: { request: DialogRequest }) {
   const [value, setValue] = useState(request.kind === "prompt" ? request.defaultValue : "");
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
   const Icon = TONE_ICON[request.tone];
 
   const cancel = () => settleDialog(request.id, request.kind === "prompt" ? null : false);
@@ -74,9 +74,20 @@ function DialogCard({ request }: { request: DialogRequest }) {
           <h3 id={`app-dialog-title-${request.id}`}>{request.title}</h3>
         </div>
         <div className="app-dialog-message">{request.message}</div>
-        {request.kind === "prompt" && (
-          <textarea ref={inputRef} className="field app-dialog-input" rows={4} value={value} onChange={(event) => setValue(event.target.value)} />
-        )}
+        {request.kind === "prompt" &&
+          (request.secret || request.singleLine ? (
+            <input
+              ref={inputRef}
+              className="field app-dialog-input"
+              type={request.secret ? "password" : "text"}
+              autoComplete="off"
+              placeholder={request.placeholder}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          ) : (
+            <textarea ref={inputRef} className="field app-dialog-input" rows={4} placeholder={request.placeholder} value={value} onChange={(event) => setValue(event.target.value)} />
+          ))}
         <div className="app-dialog-actions">
           {request.kind !== "alert" && (
             <button ref={cancelRef} type="button" className="btn" onClick={cancel}>

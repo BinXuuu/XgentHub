@@ -8,7 +8,8 @@ import { resolveCliBinary } from "./winSpawn.ts";
 // 升级后就会找不到（已经踩过好几次）。这里在每次要用时现找：配置的路径落在这种按版本存放的目录里，
 // 就换成同一目录下最新的版本；配置的路径不存在，就去桌面版的默认位置找。别的路径（比如 npm 装的 claude）原样用。
 
-const VERSIONED_EXE = /^(.*[\\/]claude-code)[\\/](\d+(?:\.\d+)*)[\\/][^\\/]+[\\/]claude(?:\.exe)?$/i;
+// macOS 上版本目录下面是 claude.app/Contents/MacOS/claude，不止一层，所以中间允许多级。
+const VERSIONED_EXE = /^(.*[\\/]claude-code)[\\/](\d+(?:\.\d+)*)[\\/].+[\\/]claude(?:\.exe)?$/i;
 const CACHE_MS = 30_000;
 let cache: { configured: string; resolved: string; at: number } | null = null;
 
@@ -39,7 +40,8 @@ export function newestClaudeIn(claudeCodeDir: string): string | null {
       continue;
     }
     for (const child of children) {
-      for (const exe of ["claude.exe", "claude"]) {
+      // Windows：<版本>\<哈希>\claude.exe；macOS：<版本>/claude.app/Contents/MacOS/claude。
+      for (const exe of ["claude.exe", "claude", path.join("Contents", "MacOS", "claude")]) {
         const candidate = path.join(versionDir, child, exe);
         if (fs.existsSync(candidate)) return candidate;
       }
@@ -48,8 +50,9 @@ export function newestClaudeIn(claudeCodeDir: string): string | null {
   return null;
 }
 
-/** 桌面版可能放 claude-code 的位置（普通安装 / Microsoft Store 版的虚拟化目录）。 */
+/** 桌面版可能放 claude-code 的位置：Windows 普通安装 / Microsoft Store 版的虚拟化目录；macOS 的应用支持目录。Linux 没有桌面版。 */
 function desktopClaudeCodeDirs(): string[] {
+  if (process.platform === "darwin") return [path.join(os.homedir(), "Library", "Application Support", "Claude", "claude-code")];
   if (process.platform !== "win32") return [];
   const dirs: string[] = [];
   const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
@@ -63,6 +66,11 @@ function desktopClaudeCodeDirs(): string[] {
     // 没有 Store 版就算了
   }
   return dirs;
+}
+
+/** 测试用：清掉 30 秒的查找缓存。 */
+export function clearClaudeBinaryCache(): void {
+  cache = null;
 }
 
 export function resolveClaudeCodeBin(configured: string): string {

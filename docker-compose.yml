@@ -1,0 +1,29 @@
+# Xgent Hub（Docker 版）。在这个文件所在目录运行：
+#   docker compose up -d --build      第一次：构建镜像并在后台启动
+#   docker compose logs xgent         看日志（没设 ADMIN_TOKEN 时，第一次启动会在这里打印生成的登录口令）
+#   git pull && docker compose up -d --build   更新到新版本（数据都在 ./xgent-data 里，不受影响）
+# 然后在浏览器打开 http://<这台机器的 IP>:4180
+services:
+  xgent:
+    build: .
+    image: xgenthub:local
+    container_name: xgenthub
+    restart: unless-stopped
+    ports:
+      - "4180:4180"
+    environment:
+      # 登录口令。留空的话第一次启动会自动生成，存在 ./xgent-data/data/admin-token。
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      TZ: Asia/Shanghai
+      # 需要走代理才能访问 OpenAI / Anthropic 的话，填上代理地址（比如 http://192.168.0.2:7890）：
+      # HTTPS_PROXY: http://192.168.0.2:7890
+      # HTTP_PROXY: http://192.168.0.2:7890
+      # NO_PROXY: localhost,127.0.0.1
+    volumes:
+      # 数据库、配置、附件、数据备份
+      - ./xgent-data/data:/data
+      # Codex / Claude Code 的登录信息和设置（~/.codex、~/.claude），以及另外添加的账号
+      - ./xgent-data/home:/home/node
+      # 要让 Agent 干活的项目文件夹：把 NAS 上的共享文件夹挂到 /workspaces 下面，
+      # 在 Xgent 里添加工作区时填容器里的路径，比如 /workspaces/my-project
+      - ./workspaces:/workspaces

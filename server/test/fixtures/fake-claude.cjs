@@ -7,6 +7,11 @@ const path = require("node:path");
 
 const args = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_ARGS_FILE) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS_FILE, JSON.stringify(args) + "\n");
+// 账号测试用：记下这次启动带的账号目录和 Key 相关环境变量。
+if (process.env.FAKE_CLAUDE_ENV_FILE) {
+  const pick = ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
+  fs.appendFileSync(process.env.FAKE_CLAUDE_ENV_FILE, JSON.stringify(Object.fromEntries(pick.map((key) => [key, process.env[key] ?? null]))) + "\n");
+}
 const interactive = args.includes("--permission-prompt-tool");
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
 const REQUEST_ID = "req-1";

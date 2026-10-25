@@ -100,7 +100,15 @@ export const api = {
   listAgents: () => request<AgentDescriptor[]>("/agents"),
   createCustomAgent: (input: CreateCustomAgentInput) =>
     request<AgentDescriptor>("/agents/custom", { method: "POST", body: JSON.stringify(input) }),
-  deleteAgent: (agentId: string) => request<{ ok: boolean }>(`/agents/${agentPath(agentId)}`, { method: "DELETE" }),
+  deleteAgent: (agentId: string) => request<{ ok: boolean; home?: string }>(`/agents/${agentPath(agentId)}`, { method: "DELETE" }),
+  createAgentAccount: (input: { kind: "codex" | "claude-code"; name?: string; copyConfig?: boolean }) =>
+    request<AgentDescriptor>("/agents/accounts", { method: "POST", body: JSON.stringify(input) }),
+  renameAgentAccount: (agentId: string, name: string) =>
+    request<AgentDescriptor>(`/agents/${agentPath(agentId)}/account`, { method: "PUT", body: JSON.stringify({ name }) }),
+  agentAccountLogin: (agentId: string, input: { method: "browser" } | { method: "apikey"; apiKey: string; baseUrl?: string }) =>
+    request<{ ok: boolean; message: string; opened?: boolean }>(`/agents/${agentPath(agentId)}/account-login`, { method: "POST", body: JSON.stringify(input) }),
+  agentAccountLogout: (agentId: string) => request<{ ok: boolean }>(`/agents/${agentPath(agentId)}/account-logout`, { method: "POST" }),
+  clearAgentApiKey: (agentId: string) => request<{ ok: boolean }>(`/agents/${agentPath(agentId)}/account-api-key`, { method: "DELETE" }),
   getAgentConfig: (agentId: string) => request<AgentConfigResponse>(`/agents/${agentPath(agentId)}/config`),
   updateAgentConfig: (agentId: string, values: Record<string, string>) =>
     request<AgentConfigResponse>(`/agents/${agentPath(agentId)}/config`, { method: "PUT", body: JSON.stringify({ values }) }),

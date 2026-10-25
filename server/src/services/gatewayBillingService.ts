@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config.ts";
+import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 export interface GatewayBillingSettings {
   defaultTaskBudgetCny: number;
@@ -117,17 +118,12 @@ function ensureDataDir() {
 }
 
 function readJson<T>(file: string, fallback: T): T {
-  if (!fs.existsSync(file)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
-  } catch {
-    return fallback;
-  }
+  return readJsonFile<T>(file, fallback);
 }
 
 function writeJson(file: string, value: unknown) {
   ensureDataDir();
-  fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n", "utf8");
+  writeJsonAtomic(file, value);
 }
 
 function cleanMoney(value: unknown): number {

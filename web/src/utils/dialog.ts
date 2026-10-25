@@ -16,7 +16,17 @@ interface DialogBase {
 export type DialogRequest =
   | (DialogBase & { kind: "confirm"; cancelText: string; resolve: (value: boolean) => void })
   | (DialogBase & { kind: "alert"; resolve: (value: void) => void })
-  | (DialogBase & { kind: "prompt"; cancelText: string; defaultValue: string; resolve: (value: string | null) => void });
+  | (DialogBase & {
+      kind: "prompt";
+      cancelText: string;
+      defaultValue: string;
+      /** 输入的是密钥这类内容：单行、显示成圆点。 */
+      secret?: boolean;
+      /** 单行输入框（名字这类短内容）。 */
+      singleLine?: boolean;
+      placeholder?: string;
+      resolve: (value: string | null) => void;
+    });
 
 let nextId = 1;
 let queue: DialogRequest[] = [];
@@ -92,7 +102,7 @@ export function errorDialog(err: unknown, title = "操作没有成功"): Promise
 
 export function promptDialog(
   message: string,
-  options: { title?: string; defaultValue?: string; confirmText?: string; cancelText?: string } = {}
+  options: { title?: string; defaultValue?: string; confirmText?: string; cancelText?: string; secret?: boolean; singleLine?: boolean; placeholder?: string } = {}
 ): Promise<string | null> {
   return new Promise((resolve) =>
     push({
@@ -104,6 +114,9 @@ export function promptDialog(
       confirmText: options.confirmText ?? "确定",
       cancelText: options.cancelText ?? "取消",
       defaultValue: options.defaultValue ?? "",
+      secret: Boolean(options.secret),
+      singleLine: Boolean(options.singleLine),
+      placeholder: options.placeholder,
       resolve,
     })
   );

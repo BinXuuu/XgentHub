@@ -1,3 +1,4 @@
+import { textField } from "./validation.ts";
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth.ts";
 import { listButlerIntents, planButlerIntent } from "../services/butlerService.ts";
@@ -10,7 +11,7 @@ interface PlanIntentBody {
 
 export function registerButlerRoutes(app: FastifyInstance) {
   app.post<{ Body: PlanIntentBody }>("/api/butler/intent", { preHandler: requireAuth }, async (req, reply) => {
-    const prompt = req.body?.prompt?.trim();
+    const prompt = textField(req.body?.prompt, "prompt");
     if (!prompt) {
       reply.code(400);
       return { error: "prompt 不能为空" };

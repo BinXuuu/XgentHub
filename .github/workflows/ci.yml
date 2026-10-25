@@ -1,0 +1,56 @@
+name: CI
+
+# 每次推送和 PR：Windows、macOS、Linux 上跑类型检查、构建和后端测试，Linux 上再检查安装脚本和 Docker 镜像能不能构建。
+# Node 22.13 是 README / package.json 写的最低版本（node:sqlite 从这一版起不用加开关），24 是开发用的版本。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        node: ["22.13.0", "24"]
+    env:
+      # 测试和构建用不到 Electron 本体，省掉一百多 MB 的下载。
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm audit --audit-level=high
+
+  linux-install:
+    # 像新用户一样跑一遍 install.sh，再试启动、重启、停止。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: for f in install.sh scripts/*.sh docker/entrypoint.sh; do bash -n "$f"; done
+      - run: bash install.sh --start
+      - run: bash scripts/xgent.sh status
+      - run: bash scripts/xgent.sh restart
+      - run: bash scripts/xgent.sh stop
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t xgenthub:ci .
+      - name: smoke test
+        run: |
+          docker run -d --name xgent -p 4180:4180 xgenthub:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4180/api/health && exit 0; sleep 2; done
+          docker logs xgent
+          exit 1

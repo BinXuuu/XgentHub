@@ -235,10 +235,10 @@ try {
     $parts = $nodeVersion.Split(".")
     $major = [int]$parts[0]
     $minor = [int]$parts[1]
-    if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 5)) {
+    if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 13)) {
       Add-Check "PASS" "Node.js" "v$nodeVersion"
     } else {
-      Add-Check "FAIL" "Node.js" "Need >= 22.5.0, found v$nodeVersion"
+      Add-Check "FAIL" "Node.js" "Need >= 22.13.0 (node:sqlite without a flag), found v$nodeVersion"
     }
   } else {
     Add-Check "FAIL" "Node.js" "Not found in PATH"

@@ -49,11 +49,11 @@ Xgent Hub is a local control console for the coding agents installed on your com
 
 ## Requirements
 
-- Windows 10 or 11
-- [Node.js](https://nodejs.org/) 22.5 or newer (uses the built-in `node:sqlite` and TypeScript type stripping)
+- Windows 10 / 11, macOS (Apple silicon or Intel) or Linux; for a NAS (fnOS, Synology, ...) use the Docker image
+- [Node.js](https://nodejs.org/) 22.13 or newer (uses the built-in `node:sqlite` and TypeScript type stripping); not needed for Docker
 - At least one agent: a CLI such as Codex or Claude Code, a local Ollama, or an API key for an OpenAI-compatible service
 
-## Install
+## Install (Windows)
 
 ```bash
 git clone <this repository> XgentHub
@@ -75,6 +75,48 @@ Then start it:
 - `start-prod.bat` starts only the background service. Open `http://127.0.0.1:4180` and sign in with the `ADMIN_TOKEN` value from `.env`.
 
 On first launch the setup wizard (配置中心) walks you through the self-check, machine discovery (finds installed CLIs and writes their paths into `.env`), adding agents, startup options and a test task. A default workspace is created at `%USERPROFILE%\XgentHub-Workspace`.
+
+## Install (macOS / Linux)
+
+```bash
+git clone <this repository> XgentHub
+cd XgentHub
+bash install.sh --service
+```
+
+`install.sh` creates `.env` with a random `ADMIN_TOKEN`, runs `npm ci` and `npm run build`. `--service` also sets up auto-start and starts it right away: launchd on macOS (runs after login, restarted if it crashes), a systemd user service on Linux. Use `--start` instead to just start it in the background once.
+
+Open `http://127.0.0.1:4180` and sign in with the `ADMIN_TOKEN` value from `.env`. Day-to-day:
+
+```bash
+bash scripts/xgent.sh status       # status
+bash scripts/xgent.sh restart      # restart (start / stop likewise)
+bash scripts/xgent.sh logs         # follow the log
+bash scripts/service.sh uninstall  # remove auto-start
+```
+
+- On macOS, if the Claude desktop app is installed, its bundled Claude Code is found automatically.
+- On a Linux server, run `sudo loginctl enable-linger $USER` once so the service also runs without a login session.
+- Online updates work as on Windows (click the version number at the bottom left); a failed update rolls back automatically.
+- The desktop app (Electron), the self-check and config import/export are Windows-only for now; use the browser on macOS / Linux.
+
+## Install (Docker: NAS / Linux server)
+
+For a NAS such as fnOS or Synology, or a headless Linux server. The image ships Node.js, git, the Codex CLI and the Claude Code CLI.
+
+```bash
+git clone <this repository> XgentHub
+cd XgentHub
+docker compose up -d --build
+docker compose logs xgent   # the first start prints the generated sign-in token here
+```
+
+Open `http://<NAS IP>:4180`. Everything lives in `xgent-data/` next to `docker-compose.yml`: `data/` holds the database and settings (token in `data/admin-token`), `home/` holds the Codex and Claude Code logins.
+
+- **Project folders**: mount your NAS shares under `/workspaces` (edit `volumes` in `docker-compose.yml`) and use the in-container path, e.g. `/workspaces/my-project`, when adding a workspace.
+- **Signing in to agents**: there is no screen for a login window. The "Log in" button on the agent page shows the command to run, e.g. `docker exec -it -u node xgenthub codex login --device-auth`; run it in the NAS terminal, open the link it prints on your phone or PC and enter the code. API keys work too.
+- **Proxy**: set `HTTPS_PROXY` in `docker-compose.yml`.
+- **Updating**: `git pull && docker compose up -d --build`; your data is kept. The in-app update button is not available in the Docker version.
 
 ## Supported agents
 
@@ -138,7 +180,7 @@ No prebuilt installer is published. To make your own `.exe` for installing on ot
 
 Notes:
 
-- The installer contains the program only, without `node_modules`. The target computer needs Node.js 22.5+ and internet access, because setup runs `npm install`.
+- The installer contains the program only, without `node_modules`. The target computer needs Node.js 22.13+ and internet access, because setup runs `npm install`.
 - The installer is not code-signed, so Windows may show "Windows protected your PC". Choose "More info → Run anyway".
 - It installs per user into `%LOCALAPPDATA%\Programs\Xgent Hub` without administrator rights. Uninstalling can keep your configuration and data.
 - If NSIS is not installed, the script does not fail: it leaves the release zip and a ready-to-run compile command to use once NSIS is installed.

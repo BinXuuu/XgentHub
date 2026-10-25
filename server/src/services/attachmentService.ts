@@ -25,9 +25,21 @@ export function saveAttachment(filename: string, dataBase64: string): string {
   return filePath;
 }
 
+/** 路径确实在附件目录里面（按目录层级判断，不是比较字符串开头：旁边的 attachments-old 之类不算）。 */
+function isInside(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return Boolean(rel) && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/** 文件存在时再按真实路径核一遍，防止通过目录联接 / 符号链接指到附件目录外面。 */
 export function isAttachmentPath(filePath: string): boolean {
   const resolved = path.resolve(filePath);
-  return resolved.startsWith(ATTACHMENTS_ROOT);
+  if (!isInside(ATTACHMENTS_ROOT, resolved)) return false;
+  try {
+    return isInside(fs.realpathSync.native(ATTACHMENTS_ROOT), fs.realpathSync.native(resolved));
+  } catch {
+    return true; // 文件或附件目录还不存在：上面的层级判断已经够了
+  }
 }
 
 export function getAttachment(filePath: string): { path: string; contentType: string } {
@@ -54,7 +66,7 @@ export function getAttachment(filePath: string): { path: string; contentType: st
  */
 export function deleteAttachmentFile(filePath: string): void {
   const resolved = path.resolve(filePath);
-  if (!resolved.startsWith(ATTACHMENTS_ROOT)) return;
+  if (!isAttachmentPath(resolved)) return;
   try {
     fs.unlinkSync(resolved);
   } catch {

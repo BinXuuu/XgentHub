@@ -8,6 +8,10 @@ backups/*
 !backups/.gitkeep
 *.log
 .env
+# 保存配置时留的上一版（含 ADMIN_TOKEN）和写入中的临时文件
+.env.bak
+.env.*.tmp
+.env.corrupt-*
 *.tsbuildinfo
 .DS_Store
 
@@ -20,3 +24,7 @@ server/data/*
 
 # 开源版导出副本（单独的 git 仓库，推到 GitHub 用，见 scripts/export-opensource.mjs）
 /XgentHub-opensource/
+
+# docker compose 的数据和工作区挂载目录
+/xgent-data/
+/workspaces/

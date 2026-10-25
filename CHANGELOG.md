@@ -2,6 +2,22 @@
 
 每个版本一节，标题写成 `## v主.次.修订`。程序里的「版本与更新」会显示对应版本这一节的内容。
 
+## v1.1.0
+
+支持 macOS、Linux 和 Docker（NAS），Codex / Claude Code 可以登录多个账号。
+
+- macOS / Linux：`bash install.sh --service` 一键安装并开机自启（macOS 用 launchd，Linux 用 systemd），`scripts/xgent.sh` 管理启停；在线更新和失败回滚跟 Windows 一样
+- Docker 版：`docker compose up -d --build`，适合飞牛 fnOS、群晖这类 NAS 和 Linux 服务器；镜像自带 Codex、Claude Code CLI，第一次启动自动生成登录令牌
+- 多账号：Codex、Claude Code 可以添加多个账号，各自独立登录、额度和会话；Claude Code 账号可以改用 API Key 或中转站；Antigravity 显示当前登录的账号
+- 「登录」按钮：Windows 弹登录窗口，macOS 打开「终端」，Linux / Docker 给出要运行的命令（Codex 用设备码登录，手机上就能完成）
+- macOS 上自动找到 Claude 桌面版自带的 Claude Code
+- 服务重启后，上次没跑完的任务改成「已停止」并说明原因，不再一直显示运行中
+- 配置文件改成安全写入并保留上一版，写坏了自动恢复，不会再出现账号、MCP「全部消失」
+- 报错直接显示中文原因（以前常常只看到 Internal Server Error）；工作区文件夹被移走时说清楚，不再误报「找不到 codex」
+- 页面某处出错只影响那一块，不会整页白屏；网络断开重连后自动刷新数据
+- Node.js 最低版本改为 22.13（低于这个版本启动会失败）
+- 依赖升级到已修复安全公告的版本
+
 ## v1.0.0
 
 第一个支持在线更新的版本。

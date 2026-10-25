@@ -149,18 +149,9 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
     }, 450);
   }, [refreshLiveStateNow]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setTab("chat");
-    setTerminalText("");
-    setFlow(null);
-    setMemories([]);
-    setRecoveryActions([]);
-    setReviewDecisions([]);
-    setEditingTitle(false);
-    setTitleDraft("");
-    setTitleError(null);
-    async function load() {
+  // 把这个任务的全部数据从服务端重新拉一遍：打开任务时用，实时推送断线重连后也用（断线期间的事件不会补发）。
+  const loadAll = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
       const [t, msgs, evts, fls, apprs, q, flowSnapshot, memoryEntries, recoveryEntries, reviewEntries] = await Promise.all([
         api.getTask(taskId),
         api.listMessages(taskId),
@@ -173,7 +164,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
         api.listRecoveryActions(taskId),
         api.listReviewDecisions(taskId),
       ]);
-      if (cancelled) return;
+      if (isCancelled()) return;
       setTask(t);
       setMessages(msgs);
       setEvents(evts);
@@ -185,12 +176,26 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
       setMemories(memoryEntries);
       setRecoveryActions(recoveryEntries);
       setReviewDecisions(reviewEntries);
-    }
-    load();
+    },
+    [taskId]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setTab("chat");
+    setTerminalText("");
+    setFlow(null);
+    setMemories([]);
+    setRecoveryActions([]);
+    setReviewDecisions([]);
+    setEditingTitle(false);
+    setTitleDraft("");
+    setTitleError(null);
+    void loadAll(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, loadAll]);
 
   useEffect(() => {
     return () => {
@@ -253,7 +258,7 @@ export function TaskDetail({ taskId, agents, workspaces, onBack, onTaskChanged, 
         void refreshRecoveryActions();
         void refreshReviewDecisions();
     }
-  });
+  }, () => void loadAll());
 
   // 实际生效的资源 = 工作区配置 ∪ 角色自带：任务换了工作区/Agent、或工作区配置改了（workspaces 会刷新）都要重拉。
   const resourceWorkspace = workspaces.find((w) => w.id === task?.workspaceId);

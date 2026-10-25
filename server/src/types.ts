@@ -208,6 +208,34 @@ export interface AgentDescriptor {
     skillIds: string[];
   } | null;
   runtime: AgentRuntimeProfile;
+  /** 这个 Agent 登录的是哪个账号（Codex、Claude Code、Antigravity）。没有账号概念的 Agent 为 null。 */
+  account: AgentAccountInfo | null;
+}
+
+/**
+ * 登录方式：chatgpt = Codex 的 ChatGPT 账号；claudeai = Claude 订阅账号；google = Antigravity 的 Google 账号；
+ * apikey = API Key（填了 baseUrl 就是走中转站）。
+ */
+export type AgentAuthMode = "chatgpt" | "claudeai" | "google" | "apikey";
+
+export interface AgentAccountInfo {
+  /** 对应的 agentId（默认账号就是内置 Agent 的 id，比如 "codex"）。 */
+  id: string;
+  /** 账号名：默认账号是"默认账号"，其它是添加时起的名字。 */
+  name: string;
+  /** 这个账号的配置目录（Codex 的 CODEX_HOME、Claude Code 的 CLAUDE_CONFIG_DIR）。 */
+  home: string;
+  isDefault: boolean;
+  /** 能不能再添加别的账号。Antigravity 的登录存在系统凭据里，一台电脑只能有一个。 */
+  supportsMultiple: boolean;
+  loggedIn: boolean;
+  authMode: AgentAuthMode | null;
+  email: string | null;
+  plan: string | null;
+  /** API Key 登录时 Key 的末 4 位。 */
+  apiKeyHint: string | null;
+  /** 走中转站时的地址。 */
+  baseUrl: string | null;
 }
 
 export interface AgentRecord {

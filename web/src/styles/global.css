@@ -10603,3 +10603,88 @@ select.field:focus {
 .md-fallback {
   white-space: pre-wrap;
 }
+
+/* Codex 账号 */
+.codex-account-section .config-actions {
+  flex-wrap: wrap;
+}
+.codex-account-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+  align-items: center;
+  margin: 4px 0 14px;
+  font-size: 13px;
+}
+.codex-account-grid > span {
+  color: var(--text-dim);
+}
+.codex-account-grid > strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.codex-account-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.codex-account-waiting {
+  font-weight: 400;
+}
+.account-create-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  max-width: 720px;
+}
+.account-create-row .field {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .account-create-row {
+    flex-direction: column;
+  }
+}
+
+/* 页面出错时的兜底提示 */
+.error-boundary {
+  align-self: flex-start;
+  height: fit-content;
+  margin: 24px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+}
+.error-boundary.full-page {
+  margin: 10vh auto;
+}
+.error-boundary p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.error-boundary code {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-input, rgba(127, 127, 127, 0.1));
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.error-boundary-actions {
+  display: flex;
+  gap: 8px;
+}

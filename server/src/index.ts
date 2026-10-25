@@ -8,6 +8,7 @@ import path from "node:path";
 import { config } from "./config.ts";
 import "./db/index.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
+import { registerErrorHandler } from "./errorHandler.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
@@ -25,6 +26,7 @@ import { registerMcpServerRoutes } from "./routes/mcpServers.ts";
 import { registerRoleRoutes } from "./routes/roles.ts";
 import { registerKnowledgeRoutes } from "./routes/knowledge.ts";
 import { startDataBackupSchedule } from "./services/dataBackupService.ts";
+import { taskManager } from "./services/taskManager.ts";
 import { currentVersion } from "./services/updateService.ts";
 import { startSnapshotPruneSchedule } from "./services/workspaceSnapshotService.ts";
 import { listWorkspaces, createWorkspace } from "./services/workspaceService.ts";
@@ -46,6 +48,7 @@ await app.register(cors, {
   origin: (origin, cb) => cb(null, true),
   credentials: true,
 });
+registerErrorHandler(app);
 
 registerAuthRoutes(app);
 registerAgentRoutes(app);
@@ -80,6 +83,12 @@ if (fs.existsSync(webDist)) {
     }
     reply.sendFile("index.html");
   });
+}
+
+// 上次服务停掉时还在跑的任务：Agent 进程已经没了，开始接请求之前先把它们改成“已中断”。
+const recovered = taskManager.recoverInterruptedWork();
+if (recovered.tasks || recovered.runs || recovered.approvals) {
+  console.log(`[recovery] 上次没跑完的：任务 ${recovered.tasks} 个、运行 ${recovered.runs} 次、审批 ${recovered.approvals} 条，已标成中断`);
 }
 
 app

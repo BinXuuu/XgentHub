@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { ProxyAgent } from "undici";
@@ -7,6 +6,7 @@ import { config } from "../config.ts";
 import { spawnCli, killProcessTree } from "../adapters/winSpawn.ts";
 import type { McpServerDefinition, McpTransport } from "../types.ts";
 import type { McpServerSpec } from "../adapters/types.ts";
+import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 const storePath = path.join(config.dataDir, "mcp-servers.json");
 
@@ -44,18 +44,12 @@ function parseIds(value: string | null | undefined): string[] {
 }
 
 function readStore(): McpServerDefinition[] {
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonFile<unknown[]>(storePath, [], Array.isArray);
+  return (parsed as any[]);
 }
 
 function writeStore(items: McpServerDefinition[]) {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(items, null, 2) + "\n", "utf8");
+  writeJsonAtomic(storePath, items);
 }
 
 function uniqueId(name: string, existing: McpServerDefinition[]): string {

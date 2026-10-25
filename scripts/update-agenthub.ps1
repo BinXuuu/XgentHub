@@ -134,7 +134,7 @@ try {
 
   # Program files only: user config (.env), data, logs, backups and dependencies are never part of the backup or the update.
   Write-Status "running" "backup"
-  $code = Invoke-Logged "backup to $BackupDir" { robocopy $Root $BackupDir /E /XD node_modules logs backups .git XgentHub-opensource $DataDir /XF .env /R:2 /W:1 /NFL /NDL /NP }
+  $code = Invoke-Logged "backup to $BackupDir" { robocopy $Root $BackupDir /E /XD node_modules logs backups .git XgentHub-opensource $DataDir /XF .env .env.bak /R:2 /W:1 /NFL /NDL /NP }
   if ($code -gt 7) { throw "Backup failed (robocopy exit $code)" }
 
   if ($Mode -eq "git") {
@@ -165,7 +165,7 @@ try {
     Write-Status "running" "applying"
     $applied = $true
     $source = $inner.FullName
-    $code = Invoke-Logged "copy new version" { robocopy $source $Root /E /XD .git $DataDir /XF .env /R:2 /W:1 /NFL /NDL /NP }
+    $code = Invoke-Logged "copy new version" { robocopy $source $Root /E /XD .git $DataDir /XF .env .env.bak /R:2 /W:1 /NFL /NDL /NP }
     if ($code -gt 7) { throw "Copying the new version failed (robocopy exit $code)" }
   }
 

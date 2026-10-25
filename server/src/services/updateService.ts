@@ -4,7 +4,7 @@ import path from "node:path";
 import { config } from "../config.ts";
 import { db } from "../db/index.ts";
 
-// 在线更新：去 GitHub 看开源仓库有没有更高版本的标签（v1.2.3），有的话由 scripts/update-agenthub.ps1
+// 在线更新：去 GitHub 看开源仓库有没有更高版本的标签（v1.2.3），有的话由 scripts/update-agenthub.ps1（Windows）或 update-agenthub.sh（macOS / Linux）
 // 停服务 → 备份 → 下载替换（或 git 切到新标签）→ npm install → 构建 → 重启；失败自动恢复备份。
 // 用户自己的 .env、server/data、logs、backups 永远不动。
 
@@ -86,13 +86,16 @@ export function extractChangelogSection(markdown: string, version: string): stri
  * git：从这个开源仓库 git clone 下来的，直接切到新版本标签。
  * dev：开发用的仓库（没关联到更新仓库），不自动更新，免得覆盖开发中的代码。
  */
-export function detectInstallMode(): { mode: InstallMode; reason: string | null } {
+/** root 默认是程序所在目录；测试会传一个临时仓库进来。 */
+export function detectInstallMode(root: string = repoRoot): { mode: InstallMode; reason: string | null } {
   const forced = process.env.AGENTHUB_UPDATE_MODE;
   if (forced === "archive" || forced === "git" || forced === "dev") return { mode: forced, reason: forced === "dev" ? "已通过 AGENTHUB_UPDATE_MODE=dev 关闭自动更新" : null };
-  if (!fs.existsSync(path.join(repoRoot, ".git"))) return { mode: "archive", reason: null };
+  // Docker 版（镜像里设了 AGENTHUB_UPDATE_MODE=docker）：程序在镜像里，换新版本是拉新镜像，不能在容器里改文件。
+  if (forced === "docker") return { mode: "dev", reason: "Docker 版不在程序里更新：在宿主机的项目目录运行 git pull && docker compose up -d --build 换成新版本（用发布好的镜像则是 docker compose pull && docker compose up -d），数据卷里的数据不受影响。" };
+  if (!fs.existsSync(path.join(root, ".git"))) return { mode: "archive", reason: null };
   let origin = "";
   try {
-    origin = execFileSync("git", ["-C", repoRoot, "remote", "get-url", "origin"], { encoding: "utf8", windowsHide: true }).trim();
+    origin = execFileSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf8", windowsHide: true }).trim();
   } catch {
     origin = "";
   }
@@ -183,30 +186,55 @@ export async function startUpdate(): Promise<{ started: true; fromVersion: strin
   const running = runningTaskCount();
   if (running > 0) throw new Error(`有 ${running} 个任务正在运行或等待审批，等它们结束（或先停止）再更新`);
 
-  const args = [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    path.join(repoRoot, "scripts", "update-agenthub.ps1"),
-    "-Launch",
-    "-Root",
-    repoRoot,
-    "-Tag",
-    info.latestTag,
-    "-Mode",
-    info.mode,
-    "-FromVersion",
-    info.currentVersion,
-    "-ToVersion",
-    info.latestVersion,
-  ];
-  if (info.mode === "archive") args.push("-ArchiveUrl", `${ARCHIVE_BASE}/${UPDATE_REPO}/zip/refs/tags/${info.latestTag}`);
+  // Windows 用 update-agenthub.ps1（下载 zip），macOS / Linux 用 update-agenthub.sh（下载 tar.gz，系统自带 tar 就能解）。
+  const windows = process.platform === "win32";
+  const archiveUrl = `${ARCHIVE_BASE}/${UPDATE_REPO}/${windows ? "zip" : "tar.gz"}/refs/tags/${info.latestTag}`;
+  const [command, args] = windows
+    ? [
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          path.join(repoRoot, "scripts", "update-agenthub.ps1"),
+          "-Launch",
+          "-Root",
+          repoRoot,
+          "-Tag",
+          info.latestTag,
+          "-Mode",
+          info.mode,
+          "-FromVersion",
+          info.currentVersion,
+          "-ToVersion",
+          info.latestVersion,
+          ...(info.mode === "archive" ? ["-ArchiveUrl", archiveUrl] : []),
+        ],
+      ]
+    : [
+        "bash",
+        [
+          path.join(repoRoot, "scripts", "update-agenthub.sh"),
+          "--launch",
+          "--root",
+          repoRoot,
+          "--tag",
+          info.latestTag,
+          "--mode",
+          info.mode,
+          "--from",
+          info.currentVersion,
+          "--to",
+          info.latestVersion,
+          ...(info.mode === "archive" ? ["--archive-url", archiveUrl] : []),
+        ],
+      ];
 
-  // -Launch 只是把脚本拷到临时目录、另起一个和本服务没有父子关系的进程去跑，然后马上返回：
-  // 更新脚本要先停掉本服务（按进程树杀），不能是它的子进程。
+  // 带 launch 参数只是把脚本拷到临时目录、另起一个和本服务没有父子关系的进程去跑，然后马上返回：
+  // 更新脚本要先停掉本服务，不能是它的子进程。
   await new Promise<void>((resolve, reject) => {
-    execFile("powershell.exe", args, { cwd: repoRoot, windowsHide: true, timeout: 30_000 }, (err, _stdout, stderr) => {
+    execFile(command, args as string[], { cwd: repoRoot, windowsHide: true, timeout: 30_000 }, (err, _stdout, stderr) => {
       if (err) reject(new Error(`启动更新失败：${stderr?.trim() || err.message}`));
       else resolve();
     });

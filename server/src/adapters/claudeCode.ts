@@ -9,7 +9,13 @@ import { cleanupTempMcpConfigFile, writeTempMcpConfigFile } from "./mcpConfigFil
 import { ASK_TIMEOUT_MS } from "./askErrors.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { ModelOption, RiskLevel } from "../types.ts";
+import type { AgentAccountInfo, ModelOption, RiskLevel } from "../types.ts";
+import {
+  claudeEnvForAgent,
+  DEFAULT_CLAUDE_AGENT_ID,
+  defaultClaudeConfigDir,
+  readClaudeAccountInfo,
+} from "../services/claudeAccountService.ts";
 
 // `claude --help` 里 --model 的说明："Provide an alias for the latest model (e.g. 'fable',
 // 'opus', or 'sonnet') or a model's full name"——这几个别名本来就会自动指向当前最新版本，
@@ -51,8 +57,11 @@ const MONTH_TO_NUM: Record<string, string> = {
 };
 
 const CLAUDE_USAGE_CACHE_DIR = path.join(config.dataDir, "usage-cache");
-const CLAUDE_USAGE_CACHE_FILE = path.join(CLAUDE_USAGE_CACHE_DIR, "claude-code.json");
-let pendingUsageRefresh: Promise<void> | null = null;
+/** 每个账号一份额度快照：默认账号沿用原来的 claude-code.json。 */
+function usageCacheFile(agentId: string): string {
+  return path.join(CLAUDE_USAGE_CACHE_DIR, `${agentId.replace(/[^a-zA-Z0-9-]+/g, "_")}.json`);
+}
+const pendingUsageRefresh = new Map<string, Promise<void>>();
 
 interface ClaudeUsageSnapshot {
   timestamp: string;
@@ -105,10 +114,11 @@ function formatUsageSummary(text: string): string {
   return keyLines.length ? ["Claude Code 额度", ...keyLines.map(translateUsageLine)].join("\n") : text.slice(0, 300);
 }
 
-function readUsageSnapshot(): ClaudeUsageSnapshot | null {
+function readUsageSnapshot(agentId: string): ClaudeUsageSnapshot | null {
   try {
-    if (!fs.existsSync(CLAUDE_USAGE_CACHE_FILE)) return null;
-    const parsed = JSON.parse(fs.readFileSync(CLAUDE_USAGE_CACHE_FILE, "utf8")) as ClaudeUsageSnapshot;
+    const file = usageCacheFile(agentId);
+    if (!fs.existsSync(file)) return null;
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as ClaudeUsageSnapshot;
     if (!parsed?.timestamp || !parsed?.summary) return null;
     return parsed;
   } catch {
@@ -116,26 +126,29 @@ function readUsageSnapshot(): ClaudeUsageSnapshot | null {
   }
 }
 
-function writeUsageSnapshot(rawText: string): void {
+function writeUsageSnapshot(agentId: string, rawText: string): void {
   const snapshot: ClaudeUsageSnapshot = {
     timestamp: new Date().toISOString(),
     rawText,
     summary: formatUsageSummary(rawText),
   };
   fs.mkdirSync(CLAUDE_USAGE_CACHE_DIR, { recursive: true });
-  fs.writeFileSync(CLAUDE_USAGE_CACHE_FILE, JSON.stringify(snapshot, null, 2), "utf8");
+  fs.writeFileSync(usageCacheFile(agentId), JSON.stringify(snapshot, null, 2), "utf8");
 }
 
-function refreshUsageSnapshotInBackground(): void {
-  if (pendingUsageRefresh) return;
-  pendingUsageRefresh = runUsageCommand()
-    .then((text) => {
-      if (text) writeUsageSnapshot(text);
-    })
-    .catch(() => undefined)
-    .finally(() => {
-      pendingUsageRefresh = null;
-    });
+function refreshUsageSnapshotInBackground(agentId: string, env: NodeJS.ProcessEnv | undefined): void {
+  if (pendingUsageRefresh.has(agentId)) return;
+  pendingUsageRefresh.set(
+    agentId,
+    runUsageCommand(env)
+      .then((text) => {
+        if (text) writeUsageSnapshot(agentId, text);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        pendingUsageRefresh.delete(agentId);
+      })
+  );
 }
 
 function isMissingBinaryError(err: unknown): boolean {
@@ -206,11 +219,11 @@ function createLineHandler(ctx: TaskRuntimeContext) {
 // claude CLI 的内置 /usage 命令能在 headless 模式下拿到真实的订阅额度信息
 // （"Current session: 19% used · resets ..." / "Current week: 12% used · resets ..."），
 // 这一步本身不计费（total_cost_usd 是 0）。拿不到就安静返回 null，不影响任务执行。
-function runUsageCommand(): Promise<string | null> {
+function runUsageCommand(env: NodeJS.ProcessEnv | undefined): Promise<string | null> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnCli(config.claudeCode.bin, ["-p", "/usage", "--output-format", "json"], {});
+      child = spawnCli(config.claudeCode.bin, ["-p", "/usage", "--output-format", "json"], { env });
     } catch {
       resolve(null);
       return;
@@ -237,7 +250,7 @@ function runUsageCommand(): Promise<string | null> {
 
 // 一次性问答用：同样走 claude -p "<prompt>" --output-format json，不计入真实对话 session，不绑定 Task。
 // 失败（启动不了、超时、退出码非 0、返回报错）直接抛出带原因的错误，聊天据此显示"失败"而不是"没有返回内容"。
-function runAskCommand(prompt: string, model?: string | null, mcpServers?: McpServerSpec[]): Promise<string | null> {
+function runAskCommand(prompt: string, model: string | null | undefined, mcpServers: McpServerSpec[] | undefined, env: NodeJS.ProcessEnv | undefined): Promise<string | null> {
   return new Promise((resolve, reject) => {
     let child;
     // ask() 没有 Task 那套审批队列，MCP 工具调用要能真的跑起来就只能跳过权限确认——
@@ -251,7 +264,7 @@ function runAskCommand(prompt: string, model?: string | null, mcpServers?: McpSe
         mcpConfigPath = writeTempMcpConfigFile(`ask-${Date.now()}`, mcpServers);
         args.push("--mcp-config", mcpConfigPath, "--dangerously-skip-permissions");
       }
-      child = spawnCli(config.claudeCode.bin, args, {});
+      child = spawnCli(config.claudeCode.bin, args, { env });
     } catch (err) {
       cleanupTempMcpConfigFile(mcpConfigPath);
       reject(new Error(`启动 Claude Code 失败：${(err as Error).message}`));
@@ -337,7 +350,7 @@ export function describeToolPermission(request: CanUseToolRequest): { command: s
   };
 }
 
-async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null): Promise<void> {
+async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null, env: NodeJS.ProcessEnv | undefined): Promise<void> {
   const text = input.text;
   const prompt = buildWorkspacePrompt(ctx.workspacePath, text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths);
   if (input.images.length) ctx.log(`Claude Code adapter 暂不支持原生图片附件，已把 ${input.images.length} 张图片路径写入提示词作为兜底`);
@@ -395,7 +408,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   ctx.setStatus("running");
 
   await new Promise<void>((resolve) => {
-    const child = spawnCli(config.claudeCode.bin, args, { cwd: ctx.workspacePath });
+    const child = spawnCli(config.claudeCode.bin, args, { cwd: ctx.workspacePath, env });
     // 交互权限模式下 stdin 要一直开着（权限答复从这里送回去），等 result 出来再关。
     if (interactivePermissions) child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`);
     else child.stdin!.end(prompt);
@@ -530,18 +543,66 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   });
 }
 
+/** 另外添加的 Claude Code 账号；不传就是默认账号（~/.claude，内置的 "claude-code"）。 */
+export interface ClaudeAccountOptions {
+  id: string;
+  name: string;
+  home: string;
+}
+
 export class ClaudeCodeAdapter implements AgentAdapter {
+  readonly id?: string;
   readonly kind = "claude-code" as const;
   readonly enforcesPlanMode = true as const;
-  readonly name = "Claude Code";
+  readonly name: string;
   readonly description = "通过本机 claude CLI 的 headless 模式（stream-json）驱动任务";
   readonly supportsMcp = true as const;
+  private readonly accountOptions: ClaudeAccountOptions | null;
+
+  constructor(account?: ClaudeAccountOptions) {
+    this.accountOptions = account ?? null;
+    if (account) {
+      this.id = account.id;
+      this.name = `Claude Code（${account.name}）`;
+    } else {
+      this.name = "Claude Code";
+    }
+  }
+
+  private get agentId(): string {
+    return this.accountOptions?.id ?? DEFAULT_CLAUDE_AGENT_ID;
+  }
+
+  get home(): string {
+    return this.accountOptions?.home ?? defaultClaudeConfigDir();
+  }
+
+  /** 每次现取：改用 / 清除 API Key 后马上生效。 */
+  private env(): NodeJS.ProcessEnv | undefined {
+    return claudeEnvForAgent(this.agentId);
+  }
+
+  account(): AgentAccountInfo {
+    return readClaudeAccountInfo({
+      id: this.agentId,
+      name: this.accountOptions?.name ?? "默认账号",
+      home: this.home,
+      isDefault: !this.accountOptions,
+    });
+  }
+
+  /** 另外添加的账号没登录时直接拦下：不然 claude 只会回一句 "Not logged in"，用户不知道该去哪登录。默认账号不拦（可能用环境变量里的 Key）。 */
+  private notLoggedInMessage(): string | null {
+    if (!this.accountOptions || this.account().loggedIn) return null;
+    return `「${this.name}」还没登录。请在左侧打开这个 Agent，在「账号」里点「登录 Claude 账号」或「用 API Key / 中转站」，登录后再重试。`;
+  }
 
   isConfigured() {
     return cliAvailable(config.claudeCode.bin);
   }
   configHint() {
-    return `使用 CLAUDE_CODE_BIN="${config.claudeCode.bin}"，需要本机已安装并登录 Claude Code CLI`;
+    const base = `使用 CLAUDE_CODE_BIN="${config.claudeCode.bin}"，需要本机已安装并登录 Claude Code CLI`;
+    return this.accountOptions ? `${base}；账号目录 CLAUDE_CONFIG_DIR=${this.home}` : base;
   }
   async discoverWorkspaces() {
     return [];
@@ -552,8 +613,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async getUsageSummary(): Promise<string | null> {
-    const snapshot = readUsageSnapshot();
-    refreshUsageSnapshotInBackground();
+    const snapshot = readUsageSnapshot(this.agentId);
+    refreshUsageSnapshotInBackground(this.agentId, this.env());
     if (!snapshot) {
       return "Claude Code 额度\n暂无本地额度快照：已在后台刷新，请稍后再点一次查询用量。";
     }
@@ -561,16 +622,30 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) {
+      ctx.agentMessage(notLoggedIn);
+      ctx.setStatus("failed");
+      return;
+    }
     ctx.setSessionKey(`claude-code-${runtimeKeyOf(ctx)}`);
-    await dispatch(ctx, input, null);
+    await dispatch(ctx, input, null, this.env());
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input, ctx.sessionKey);
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) {
+      ctx.agentMessage(notLoggedIn);
+      ctx.setStatus("failed");
+      return;
+    }
+    await dispatch(ctx, input, ctx.sessionKey, this.env());
   }
 
   async ask(prompt: string, options?: { model?: string | null; mcpServers?: McpServerSpec[] }): Promise<string | null> {
-    return runAskCommand(prompt, options?.model, options?.mcpServers);
+    const notLoggedIn = this.notLoggedInMessage();
+    if (notLoggedIn) throw new Error(notLoggedIn);
+    return runAskCommand(prompt, options?.model, options?.mcpServers, this.env());
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
