@@ -60,7 +60,7 @@ coreExtractAbort:
   Pop $0
   ${If} $0 != 0
     IfSilent coreInstallAbort
-    MessageBox MB_ICONEXCLAMATION "install.bat returned exit code $0. You can run doctor.bat from the install folder for details."
+    MessageBox MB_ICONEXCLAMATION "install.bat returned exit code $0. You can run xgent.bat doctor from the install folder for details."
     Goto coreInstallWarningDone
 coreInstallAbort:
     Abort
@@ -72,29 +72,29 @@ SectionEnd
 
 Section "Create desktop and Start Menu shortcuts" SEC_SHORTCUTS
   DetailPrint "Creating Xgent Hub shortcuts..."
-  ExecWait '"$INSTDIR\installer-entry.bat" install-shortcuts'
+  ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\installer-entry.ps1" install-shortcuts'
 SectionEnd
 
 Section /o "Start Xgent Hub when Windows user logs in" SEC_STARTUP
   DetailPrint "Installing Xgent Hub startup task..."
-  ExecWait '"$INSTDIR\installer-entry.bat" install-startup'
+  ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\installer-entry.ps1" install-startup'
 SectionEnd
 
 Section /o "Start Xgent Hub desktop app after install" SEC_START
   DetailPrint "Starting Xgent Hub desktop app..."
-  Exec '"$INSTDIR\installer-entry.bat" start-app'
+  Exec 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\scripts\installer-entry.ps1" start-app'
 SectionEnd
 
 Section "Uninstall"
   DetailPrint "Stopping Xgent Hub..."
-  IfFileExists "$INSTDIR\stop.bat" 0 un_skipStop
-    ExecWait '"$INSTDIR\stop.bat"'
+  IfFileExists "$INSTDIR\scripts\agenthub.ps1" 0 un_skipStop
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\agenthub.ps1" stop'
 un_skipStop:
 
   DetailPrint "Removing Xgent Hub startup task and shortcuts..."
-  IfFileExists "$INSTDIR\installer-entry.bat" 0 un_skipInstallerEntry
-    ExecWait '"$INSTDIR\installer-entry.bat" remove-startup'
-    ExecWait '"$INSTDIR\installer-entry.bat" remove-shortcuts'
+  IfFileExists "$INSTDIR\scripts\installer-entry.ps1" 0 un_skipInstallerEntry
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\installer-entry.ps1" remove-startup'
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\installer-entry.ps1" remove-shortcuts'
 un_skipInstallerEntry:
 
   IfSilent un_keepData

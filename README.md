@@ -97,7 +97,7 @@ cd XgentHub
 install.bat
 ```
 
-`install.bat` 会从 `.env.example` 生成 `.env` 并随机生成登录令牌 `ADMIN_TOKEN`，然后运行 `npm install`、`npm run build`，最后跑一遍自检（`doctor.bat`）。
+`install.bat` 会从 `.env.example` 生成 `.env` 并随机生成登录令牌 `ADMIN_TOKEN`，然后运行 `npm install`、`npm run build`，最后跑一遍自检（`xgent.bat doctor`）。
 
 可选参数（创建快捷方式、开机启动、装完直接启动）：
 
@@ -108,7 +108,7 @@ install.bat -InstallShortcuts -InstallStartupTask -StartAfterInstall
 启动方式：
 
 - `start-app.bat`：打开桌面版。服务没启动会自动拉起，并用 `.env` 里的令牌自动登录。
-- `start-prod.bat`：只启动后台服务。浏览器打开 `http://127.0.0.1:4180`，用 `.env` 里 `ADMIN_TOKEN=` 后面那串登录。
+- `xgent.bat start`：只启动后台服务。浏览器打开 `http://127.0.0.1:4180`，用 `.env` 里 `ADMIN_TOKEN=` 后面那串登录。
 
 第一次打开会进入配置中心向导：环境自检、本机发现（找到已装的 CLI 并把路径写进 `.env`）、添加 Agent、开机启动、创建测试任务。默认工作区会建在 `%USERPROFILE%\XgentHub-Workspace`。
 
@@ -188,14 +188,20 @@ docker compose logs xgent   # 第一次启动会在这里打印自动生成的�
 
 ## 日常使用
 
-| 脚本 | 作用 |
+Windows 上根目录只有三个要用的文件：`install.bat`（安装）、`start-app.bat`（打开桌面版），其它都交给 `xgent.bat`（跟 macOS / Linux 的 `scripts/xgent.sh` 用法一样）：
+
+| 命令 | 作用 |
 |---|---|
-| `start-app.bat` | 打开桌面版 |
-| `start-prod.bat` / `restart-prod.bat` / `stop.bat` | 启动 / 重启 / 停止后台服务 |
-| `status-prod.bat` | 查看服务状态、端口和日志位置 |
-| `doctor.bat` | 自检 Node、依赖、配置和已装的 CLI |
-| `export-config.bat` / `import-config.bat` | 把配置迁移到另一台电脑（默认不带密钥） |
+| `xgent.bat start` / `restart` / `stop` | 启动 / 重启 / 停止后台服务 |
+| `xgent.bat status` | 查看服务状态、端口和日志位置 |
+| `xgent.bat logs` | 看最近的日志（`logs -f` 持续跟踪） |
+| `xgent.bat doctor` | 自检 Node、依赖、配置和已装的 CLI |
+| `xgent.bat autostart on` / `off` | 登录 Windows 后自动在后台启动 |
+| `xgent.bat shortcuts install` / `remove` | 创建 / 删除桌面和开始菜单快捷方式 |
+| `xgent.bat export-config` / `import-config` | 把配置迁移到另一台电脑（默认不带密钥） |
 | `scripts/restore-data.ps1` | 列出或恢复 `backups/data` 里的自动数据库备份 |
+
+`xgent.bat help` 列出全部命令；直接双击 `xgent.bat` 也会显示这份帮助。
 
 日志在 `logs/`，按月归档，保留一年。
 
@@ -204,11 +210,11 @@ docker compose logs xgent   # 第一次启动会在这里打印自动生成的�
 本仓库不提供现成的安装包，需要的话可以自己打一个 `.exe`，拿到别的电脑上安装：
 
 1. 先按上面的「安装」在本机跑通一次 `install.bat`。
-2. 安装 [NSIS 3](https://nsis.sourceforge.io/Download)（默认装到 `C:\Program Files (x86)\NSIS` 就能自动找到；装在别处的话运行时加 `-MakensisPath <makensis.exe 的完整路径>`）。
+2. 安装 [NSIS 3](https://nsis.sourceforge.io/Download)（默认装到 `C:\Program Files (x86)\NSIS` 就能自动找到；装在别处的话运行 `npm run installer:nsis -- -MakensisPath <makensis.exe 的完整路径>`）。
 3. 在项目目录运行：
 
    ```bash
-   build-nsis-installer.bat
+   npm run installer:nsis
    ```
 
    它会先构建并做发布检查（确认安装包里没有 `.env`、数据库、日志、`server/data` 等本机私有文件），再打包。
@@ -239,7 +245,7 @@ npm run build             # 后端类型检查 + 构建前端
 server/   Fastify + TypeScript 后端，SQLite 存储，SSE 实时推送，各 Agent 的 adapter
 web/      React + Vite 前端
 desktop/  Electron 桌面壳
-scripts/  Windows 服务、安装、备份和自检脚本
+scripts/  服务管理、安装、更新、备份和自检脚本（Windows 专用的在 scripts/windows/）
 ```
 
 接入新的 Agent：在 `server/src/adapters/` 下新建文件实现 `AgentAdapter` 接口（`server/src/adapters/types.ts`），在 `server/src/adapters/registry.ts` 里注册；需要新配置项就加到 `server/src/config.ts` 和 `.env.example`。任务管理、路由和前端只依赖这个接口，不用改。

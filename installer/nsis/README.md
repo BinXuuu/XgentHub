@@ -2,7 +2,7 @@
 
 This folder contains the first Windows GUI installer prototype for AgentHub.
 
-The NSIS installer embeds a release zip that has already passed `release-check`, extracts it into a user-writable install directory, runs `install.bat`, and then uses `installer-entry.bat` for optional actions.
+The NSIS installer embeds a release zip that has already passed `release-check`, extracts it into a user-writable install directory, runs `install.bat`, and then uses `scripts/installer-entry.ps1` for optional actions.
 
 Default behavior:
 

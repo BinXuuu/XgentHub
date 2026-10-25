@@ -121,10 +121,11 @@ try {
     "package.json",
     "node_modules",
     "start-app.bat",
-    "start-app.vbs",
+    "xgent.bat",
+    "scripts\windows\start-app.vbs",
     "desktop\main.cjs",
     "web\dist\index.html",
-    "uninstall-startup-task.ps1",
+    "scripts\windows\uninstall-startup-task.ps1",
     "scripts\uninstall-cleanup.ps1"
   )) {
     $path = Join-Path $StageRoot $required
@@ -246,7 +247,7 @@ try {
     "package.json",
     "package-lock.json",
     "install.bat",
-    "start-app.vbs",
+    "xgent.bat",
     "desktop",
     "docs",
     "installer",

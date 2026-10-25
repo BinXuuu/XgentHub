@@ -97,7 +97,7 @@ cd XgentHub
 install.bat
 ```
 
-`install.bat` creates `.env` from `.env.example` with a randomly generated `ADMIN_TOKEN`, runs `npm install` and `npm run build`, then runs the self-check (`doctor.bat`).
+`install.bat` creates `.env` from `.env.example` with a randomly generated `ADMIN_TOKEN`, runs `npm install` and `npm run build`, then runs the self-check (`xgent.bat doctor`).
 
 Optional switches:
 
@@ -108,7 +108,7 @@ install.bat -InstallShortcuts -InstallStartupTask -StartAfterInstall
 Then start it:
 
 - `start-app.bat` opens the desktop app. It starts the service if needed and logs in with the token from `.env` automatically.
-- `start-prod.bat` starts only the background service. Open `http://127.0.0.1:4180` and sign in with the `ADMIN_TOKEN` value from `.env`.
+- `xgent.bat start` starts only the background service. Open `http://127.0.0.1:4180` and sign in with the `ADMIN_TOKEN` value from `.env`.
 
 On first launch the setup wizard (配置中心) walks you through the self-check, machine discovery (finds installed CLIs and writes their paths into `.env`), adding agents, startup options and a test task. A default workspace is created at `%USERPROFILE%\XgentHub-Workspace`.
 
@@ -188,14 +188,20 @@ Every agent's settings page has a diagnostics panel and an install guide with co
 
 ## Daily operations
 
-| Script | What it does |
+On Windows only three files in the root are meant to be run: `install.bat` (setup), `start-app.bat` (desktop app), and `xgent.bat` for everything else (same commands as `scripts/xgent.sh` on macOS / Linux):
+
+| Command | What it does |
 |---|---|
-| `start-app.bat` | Open the desktop app |
-| `start-prod.bat` / `restart-prod.bat` / `stop.bat` | Start, restart or stop the background service |
-| `status-prod.bat` | Show service status, ports and log locations |
-| `doctor.bat` | Self-check of Node, dependencies, configuration and installed CLIs |
-| `export-config.bat` / `import-config.bat` | Move your configuration to another computer (secrets are redacted unless you ask otherwise) |
+| `xgent.bat start` / `restart` / `stop` | Start, restart or stop the background service |
+| `xgent.bat status` | Show service status, ports and log locations |
+| `xgent.bat logs` | Show recent log lines (`logs -f` keeps following) |
+| `xgent.bat doctor` | Self-check of Node, dependencies, configuration and installed CLIs |
+| `xgent.bat autostart on` / `off` | Start in the background when you log in to Windows |
+| `xgent.bat shortcuts install` / `remove` | Create or remove desktop and Start Menu shortcuts |
+| `xgent.bat export-config` / `import-config` | Move your configuration to another computer (secrets are redacted unless you ask otherwise) |
 | `scripts/restore-data.ps1` | List or restore automatic database backups from `backups/data` |
+
+`xgent.bat help` lists every command; double-clicking `xgent.bat` shows the same help.
 
 Logs are written to `logs/`, rotated monthly and kept for a year.
 
@@ -204,11 +210,11 @@ Logs are written to `logs/`, rotated monthly and kept for a year.
 No prebuilt installer is published. To make your own `.exe` for installing on other computers:
 
 1. Get `install.bat` working on this machine first (see Install above).
-2. Install [NSIS 3](https://nsis.sourceforge.io/Download). The default location `C:\Program Files (x86)\NSIS` is found automatically; otherwise pass `-MakensisPath <full path to makensis.exe>`.
+2. Install [NSIS 3](https://nsis.sourceforge.io/Download). The default location `C:\Program Files (x86)\NSIS` is found automatically; otherwise run `npm run installer:nsis -- -MakensisPath <full path to makensis.exe>`.
 3. In the project folder, run:
 
    ```bash
-   build-nsis-installer.bat
+   npm run installer:nsis
    ```
 
    It builds the project and runs a release check (making sure no `.env`, database, logs or `server/data` files are included) before packaging.
@@ -239,7 +245,7 @@ Project layout:
 server/   Fastify + TypeScript backend, SQLite storage, SSE events, agent adapters
 web/      React + Vite frontend
 desktop/  Electron desktop shell
-scripts/  Windows service, install, backup and diagnostics scripts
+scripts/  Service, install, update, backup and diagnostics scripts (Windows-only ones in scripts/windows/)
 ```
 
 To add a new agent runtime, implement the `AgentAdapter` interface (`server/src/adapters/types.ts`) in a new file under `server/src/adapters/`, register it in `server/src/adapters/registry.ts`, and add any new settings to `server/src/config.ts` and `.env.example`. The task manager, routes and UI only depend on that interface.

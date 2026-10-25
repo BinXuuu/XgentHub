@@ -55,7 +55,7 @@ Start-Sleep -Seconds 2
 }
 
 function Start-DesktopApp {
-  $launcher = Join-Path $Root "start-app.vbs"
+  $launcher = Join-Path $Root "scripts\windows\start-app.vbs"
   if (Test-Path $launcher) {
     Start-Process -FilePath "wscript.exe" -ArgumentList @("//B", "`"$launcher`"") -WorkingDirectory $Root
     Write-Host "Started Xgent Hub desktop app."
@@ -78,10 +78,10 @@ switch ($Command) {
     Invoke-ProjectScript -ScriptPath (Join-Path $Root "scripts\manage-shortcuts.ps1") -Arguments @("remove")
   }
   "install-startup" {
-    Invoke-ProjectScript -ScriptPath (Join-Path $Root "install-startup-task.ps1")
+    Invoke-ProjectScript -ScriptPath (Join-Path $Root "scripts\windows\install-startup-task.ps1")
   }
   "remove-startup" {
-    Invoke-ProjectScript -ScriptPath (Join-Path $Root "uninstall-startup-task.ps1")
+    Invoke-ProjectScript -ScriptPath (Join-Path $Root "scripts\windows\uninstall-startup-task.ps1")
   }
   "start-app" {
     Start-DesktopApp

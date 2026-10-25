@@ -208,10 +208,21 @@ function Invoke-LogRotation {
   }
 }
 
+function Invoke-LauncherRepair {
+  $script = Join-Path $PSScriptRoot "windows\repair-launchers.ps1"
+  if (-not (Test-Path $script)) { return }
+  try {
+    & $script | ForEach-Object { Write-Step $_ }
+  } catch {
+    Write-Step "Launcher repair skipped: $($_.Exception.Message)"
+  }
+}
+
 function Start-AgentHub {
   Ensure-AgentHubDirectories
   Assert-CanStart
   Invoke-BackupRetention
+  Invoke-LauncherRepair
 
   if ($StartOllama) {
     Start-OllamaService
@@ -249,6 +260,10 @@ function Start-AgentHub {
 function Stop-AgentHub {
   Ensure-AgentHubDirectories
   $ports = @(Get-AgentHubTargetPorts)
+  # stop is called without -Mode by xgent.bat / shortcuts, so also cover the production port from .env.
+  if ($EnvMap.ContainsKey("PORT") -and $EnvMap["PORT"] -match "^\d+$") {
+    $ports = @($ports + [int]$EnvMap["PORT"]) | Sort-Object -Unique
+  }
   $pids = @()
   foreach ($port in $ports) {
     $pids += Get-ListeningPids -Port $port

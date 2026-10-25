@@ -107,7 +107,7 @@ try {
 
   if ($InstallStartupTask) {
     Write-Step "Installing startup scheduled task..."
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "install-startup-task.ps1")
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\windows\install-startup-task.ps1")
   }
 
   if ($InstallShortcuts) {

@@ -1,7 +1,7 @@
 Set WshShell = CreateObject("WScript.Shell")
 Set FSO = CreateObject("Scripting.FileSystemObject")
 
-root = FSO.GetParentFolderName(WScript.ScriptFullName)
+root = FSO.GetParentFolderName(FSO.GetParentFolderName(FSO.GetParentFolderName(WScript.ScriptFullName)))
 electron = root & "\node_modules\electron\dist\electron.exe"
 main = root & "\desktop\main.cjs"
 

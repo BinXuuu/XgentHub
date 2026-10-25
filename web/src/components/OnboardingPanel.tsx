@@ -345,8 +345,8 @@ export function OnboardingPanel({ onBack, onSelectAgent, onCreateAgent, onCreate
 
   const usableAgents = overview?.agents.filter((item) => item.diagnostics.status !== "error") ?? [];
   const failingAgents = overview?.agents.filter((item) => item.diagnostics.status === "error") ?? [];
-  const importCommand = "import-config.bat -BundlePath D:\\path\\XgentHub-config.zip";
-  const trustedImportCommand = "import-config.bat -BundlePath D:\\path\\XgentHub-config.zip -RestoreSecrets";
+  const importCommand = "xgent.bat import-config -BundlePath D:\\path\\XgentHub-config.zip";
+  const trustedImportCommand = "xgent.bat import-config -BundlePath D:\\path\\XgentHub-config.zip -RestoreSecrets";
   const recommendedMachineItems = machineConfig?.items.filter((item) => item.status === "recommended") ?? [];
   const differentMachineItems = machineConfig?.items.filter((item) => item.status === "different") ?? [];
   const activeStepIndex = Math.max(0, WIZARD_STEPS.findIndex((step) => step.id === activeStep));

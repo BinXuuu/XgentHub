@@ -223,15 +223,10 @@ try {
 
   foreach ($file in @(
     "install.bat",
-    "uninstall-startup-task.bat",
-    "uninstall-startup-task.ps1",
-    "installer-entry.bat",
+    "xgent.bat",
     "start-app.bat",
-    "start-app.vbs",
-    "start-prod.bat",
-    "status-prod.bat",
-    "stop.bat",
-    "doctor.bat",
+    "scripts\windows\start-app.vbs",
+    "scripts\windows\uninstall-startup-task.ps1",
     "README.md",
     "INSTALL.md",
     ".env.example",
@@ -245,8 +240,7 @@ try {
     "scripts\doctor.ps1",
     "scripts\manage-shortcuts.ps1",
     "scripts\uninstall-cleanup.ps1",
-    "desktop\main.cjs",
-    "run-hidden.vbs"
+    "desktop\main.cjs"
   )) {
     $path = Join-Path $installRoot $file
     if (Test-Path $path) {
@@ -264,13 +258,6 @@ try {
     "server\data\agenthub.sqlite",
     "docs",
     "installer",
-    "build-installer.bat",
-    "build-nsis-installer.bat",
-    "package-release.bat",
-    "release-check.bat",
-    "test-install-package.bat",
-    "test-nsis-installer.bat",
-    "backup-version.bat",
     "INSTALLER.md",
     "$([string]::Concat([char]0x9879, [char]0x76ee, [char]0x8fdb, [char]0x5ea6, '.txt'))",
     "scripts\build-installer.ps1",

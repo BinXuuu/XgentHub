@@ -627,7 +627,7 @@ async function diagnoseBuiltin(
       if (tags.ok) addCheck(checks, "Ollama API", "ok", url);
       else {
         addCheck(checks, "Ollama API", "error", tags.text || `HTTP ${tags.status}`);
-        nextSteps.push("启动 Ollama：ollama serve，或用 start.bat 让 Xgent Hub 带起 Ollama。");
+        nextSteps.push("启动 Ollama：ollama serve，或在 Windows 上用 xgent.bat start 让 Xgent Hub 一起带起 Ollama。");
       }
       break;
     }

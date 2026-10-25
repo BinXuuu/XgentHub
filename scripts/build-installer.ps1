@@ -77,21 +77,24 @@ try {
 1. Install Node.js 22.13+.
 2. Extract `$releaseLeaf` to the final Xgent Hub folder.
 3. Run install.bat in that folder.
-4. Optional before installing on another machine: run test-install-package.bat against this installer zip from a development checkout.
-5. Optional: run manage-shortcuts.bat install.
-6. Run start-app.bat to open the desktop app shell, or run start-prod.bat for browser-only mode.
+4. Optional before installing on another machine: run npm run installer:smoke against this installer zip from a development checkout.
+5. Optional: run xgent.bat shortcuts install.
+6. Run start-app.bat to open the desktop app shell, or run xgent.bat start for browser-only mode.
 7. Open http://127.0.0.1:4180/?view=onboarding&step=machine to run machine discovery if you are using browser-only mode, or use the port configured by .env PORT.
 
-Use doctor.bat when an agent or local model service is not detected.
-Use test-install-package.bat with -RunInstall -RunService from a development checkout to verify a temporary install can start, report status, pass doctor, and stop cleanly.
-Use test-nsis-installer.bat from a development checkout after building the NSIS prototype to verify silent install/uninstall behavior.
+Use xgent.bat doctor when an agent or local model service is not detected.
+Use npm run installer:smoke -- -RunInstall -RunService from a development checkout to verify a temporary install can start, report status, pass doctor, and stop cleanly.
+Use npm run installer:nsis:smoke from a development checkout after building the NSIS prototype to verify silent install/uninstall behavior.
 Use the configuration center finish step to copy LAN/mobile access URLs after ADMIN_TOKEN and HOST are configured.
-Future NSIS/MSI wrappers should call installer-entry.bat for fixed install actions.
-To build the NSIS prototype, run build-nsis-installer.bat after installing NSIS.
+Future NSIS/MSI wrappers should call scripts\installer-entry.ps1 for fixed install actions.
+To build the NSIS prototype, run npm run installer:nsis after installing NSIS.
 "@
   Set-Content -Path (Join-Path $StageDir "QUICKSTART.md") -Value $quickstart -Encoding UTF8
 
-  Copy-Item -LiteralPath (Join-Path $Root "INSTALLER.md") -Destination (Join-Path $StageDir "INSTALLER-ROUTE.md") -Force
+  $installerNotes = Join-Path $Root "docs\installer.md"
+  if (Test-Path $installerNotes) {
+    Copy-Item -LiteralPath $installerNotes -Destination (Join-Path $StageDir "INSTALLER-ROUTE.md") -Force
+  }
 
   $releaseHash = Get-Sha256 -Path (Join-Path $StageDir $releaseLeaf)
   $reportHash = Get-Sha256 -Path (Join-Path $StageDir $reportLeaf)

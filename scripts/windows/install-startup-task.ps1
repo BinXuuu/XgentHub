@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Launcher = Join-Path $Root "start-on-login.vbs"
+$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$Launcher = Join-Path $PSScriptRoot "start-on-login.vbs"
 $TaskName = "Xgent Hub Auto Start"
 $LegacyTaskName = "AgentHub Auto Start"
 

@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Continue"
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $LogsDir = Join-Path $Root "logs"
 $LogFile = Join-Path $LogsDir "startup.log"
 $AgentHubScript = Join-Path $Root "scripts\agenthub.ps1"

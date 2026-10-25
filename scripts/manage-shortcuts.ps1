@@ -6,15 +6,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$AppLauncher = Join-Path $Root "start-app.vbs"
-$StartScript = if (Test-Path $AppLauncher) { $AppLauncher } else { Join-Path $Root "start-prod.bat" }
+$StartScript = Join-Path $Root "scripts\windows\start-app.vbs"
+$ServiceScript = Join-Path $Root "xgent.bat"
 $ElectronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
 $ProjectIcon = Join-Path $Root "desktop\assets\xgent-hub.ico"
 $AppIcon = if (Test-Path $ElectronExe) { "$ElectronExe,0" } elseif (Test-Path $ProjectIcon) { $ProjectIcon } else { "$env:SystemRoot\System32\shell32.dll,220" }
 $StatusIcon = "$env:SystemRoot\System32\shell32.dll,23"
 $StopIcon = "$env:SystemRoot\System32\shell32.dll,131"
-$StatusScript = Join-Path $Root "status-prod.bat"
-$StopScript = Join-Path $Root "stop.bat"
 $ProductName = "Xgent Hub"
 $DesktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "$ProductName.lnk"
 $LegacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "AgentHub.lnk"
@@ -32,7 +30,8 @@ function New-AgentHubShortcut {
     [string]$ShortcutPath,
     [string]$TargetPath,
     [string]$Description,
-    [string]$IconLocation = $AppIcon
+    [string]$IconLocation = $AppIcon,
+    [string]$Arguments = ""
   )
 
   if (-not (Test-Path $TargetPath)) {
@@ -47,6 +46,7 @@ function New-AgentHubShortcut {
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($ShortcutPath)
   $shortcut.TargetPath = $TargetPath
+  $shortcut.Arguments = $Arguments
   $shortcut.WorkingDirectory = $Root
   $shortcut.Description = $Description
   $shortcut.IconLocation = $IconLocation
@@ -85,8 +85,8 @@ switch ($Command) {
     }
     New-AgentHubShortcut -ShortcutPath $DesktopShortcut -TargetPath $StartScript -Description "Open Xgent Hub" -IconLocation $AppIcon
     New-AgentHubShortcut -ShortcutPath $StartMenuShortcut -TargetPath $StartScript -Description "Open Xgent Hub" -IconLocation $AppIcon
-    New-AgentHubShortcut -ShortcutPath $StartMenuStatusShortcut -TargetPath $StatusScript -Description "Check Xgent Hub status" -IconLocation $StatusIcon
-    New-AgentHubShortcut -ShortcutPath $StartMenuStopShortcut -TargetPath $StopScript -Description "Stop Xgent Hub" -IconLocation $StopIcon
+    New-AgentHubShortcut -ShortcutPath $StartMenuStatusShortcut -TargetPath $ServiceScript -Arguments "status --pause" -Description "Check Xgent Hub status" -IconLocation $StatusIcon
+    New-AgentHubShortcut -ShortcutPath $StartMenuStopShortcut -TargetPath $ServiceScript -Arguments "stop --pause" -Description "Stop Xgent Hub" -IconLocation $StopIcon
     Write-Host "Xgent Hub shortcuts installed."
   }
   "remove" {

@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $TaskNames = @("Xgent Hub Auto Start", "AgentHub Auto Start")
 
 function Test-TaskBelongsToRoot {

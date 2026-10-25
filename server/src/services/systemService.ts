@@ -465,7 +465,7 @@ export async function getStartupTaskStatus(): Promise<StartupTaskStatus> {
 }
 
 export async function installStartupTask(): Promise<SystemCommandResult> {
-  return runPowerShellScript("install-startup-task.ps1", [], 60_000);
+  return runPowerShellScript("scripts/windows/install-startup-task.ps1", [], 60_000);
 }
 
 export async function uninstallStartupTask(): Promise<SystemCommandResult> {
@@ -550,7 +550,7 @@ export async function getPostInstallStatus(): Promise<PostInstallStatus> {
           ? `已识别 ${machineConfig.summary.configured} 项本机配置；${machineConfig.summary.different} 项可按需覆盖为完整路径。`
           : `还有 ${machineConfig.summary.recommended} 项建议写入、${machineConfig.summary.notFound} 项未发现。`
       ),
-      check("shortcuts", "桌面/开始菜单快捷方式", shortcuts.installed ? "ok" : "warn", shortcuts.installed ? "桌面和开始菜单快捷方式已创建。" : "可在配置中心或 manage-shortcuts.bat 中创建快捷方式。"),
+      check("shortcuts", "桌面/开始菜单快捷方式", shortcuts.installed ? "ok" : "warn", shortcuts.installed ? "桌面和开始菜单快捷方式已创建。" : "可在配置中心创建，或运行 xgent.bat shortcuts install。"),
       check("startup-task", "开机后台启动", startup.installed ? "ok" : "warn", startup.installed ? "Windows 任务计划启动项已安装。" : "可按需安装当前用户登录后后台启动。"),
       check("logs-dir", "日志目录", fs.existsSync(logsDir) ? "ok" : "warn", fs.existsSync(logsDir) ? logsDir : "logs 目录不存在，启动服务后会自动创建。"),
       check("backups-dir", "备份目录", fs.existsSync(backupsDir) ? "ok" : "warn", fs.existsSync(backupsDir) ? backupsDir : "backups 目录不存在，生成配置包或发布包时会创建。"),
