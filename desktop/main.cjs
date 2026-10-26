@@ -280,7 +280,9 @@ function createWindow() {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml())}`);
+  // 服务已经在跑时，正式页面会在启动画面画出来之前就把它打断（ERR_ABORTED），这时 ready-to-show 不会再触发，
+  // 所以下面加载完正式页面后还要再确保窗口显示出来；这里的打断是正常的，不当成错误。
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml())}`).catch(() => {});
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(getBaseUrl())) return { action: "allow" };
@@ -303,7 +305,11 @@ function createWindow() {
   ensureService()
     .then(() => ensureDesktopLogin(mainWindow))
     .then(() => mainWindow.loadURL(getBaseUrl()))
+    .then(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+    })
     .catch((error) => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
       appendLog(error.stack || error.message);
       dialog.showErrorBox("Xgent Hub 启动失败", `${error.message}\n\n日志：${logPath}`);
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml().replace("正在启动 Xgent Hub", "Xgent Hub 启动失败").replace("桌面壳正在拉起本地服务和 Ollama，稍等一下就会进入控制台。", `请查看日志：${logPath}`))}`);
