@@ -31,15 +31,12 @@ function splitArgs(input: string): string[] {
   const args: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
-  let escaping = false;
-  for (const ch of input) {
-    if (escaping) {
-      current += ch;
-      escaping = false;
-      continue;
-    }
-    if (quote && ch === "\\") {
-      escaping = true;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]!;
+    // 同 splitTemplateArgs：引号里只有 \" 是转义，Windows 路径里的反斜杠原样保留。
+    if (quote && ch === "\\" && input[i + 1] === quote) {
+      current += quote;
+      i++;
       continue;
     }
     if (quote) {
@@ -64,11 +61,10 @@ function splitArgs(input: string): string[] {
   return args;
 }
 
-function splitTemplateArgs(template: string, values: Record<string, string | string[]>): string[] {
+export function splitTemplateArgs(template: string, values: Record<string, string | string[]>): string[] {
   const args: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
-  let escaping = false;
 
   for (let i = 0; i < template.length; i++) {
     const rest = template.slice(i);
@@ -89,13 +85,10 @@ function splitTemplateArgs(template: string, values: Record<string, string | str
     }
 
     const ch = template[i];
-    if (escaping) {
-      current += ch;
-      escaping = false;
-      continue;
-    }
-    if (quote && ch === "\\") {
-      escaping = true;
+    // 引号里只有 \" （或 \'）表示引号本身；其它反斜杠原样保留，Windows 路径 "C:\Users\..." 才不会被吃掉。
+    if (quote && ch === "\\" && template[i + 1] === quote) {
+      current += quote;
+      i++;
       continue;
     }
     if (quote) {

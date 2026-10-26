@@ -10783,3 +10783,56 @@ select.field:focus {
   .catalog-source { flex-direction: column; align-items: stretch; }
   .catalog-kinds { width: 100%; overflow-x: auto; }
 }
+
+/* 流程页：时间线 / 结构 切换和泳道时间线 */
+.flow-view-switch { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.flow-view-switch button { border: 1px solid var(--border-soft); background: var(--bg-card); color: var(--text-dim); padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.flow-view-switch button.active { border-color: var(--accent); color: var(--accent); }
+.flow-view-switch span { margin-left: 8px; color: var(--text-faint); font-size: 12px; }
+.flow-timeline-wrap { display: flex; flex-direction: column; }
+.flow-timeline { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.flow-timeline-scroll { flex: 1 1 auto; overflow: auto; min-height: 0; position: relative; }
+.flow-timeline-header { position: sticky; top: 0; z-index: 2; display: grid; background: var(--bg-card); border-bottom: 1px solid var(--border-soft); }
+.flow-timeline-corner { display: flex; align-items: flex-end; padding: 0 0 8px 12px; font-size: 11px; color: var(--text-faint); }
+.flow-timeline-lane-head { display: grid; align-content: center; gap: 3px; min-width: 0; text-align: left; padding: 6px 12px 6px 14px; border: 0; border-left: 1px solid var(--border-soft); background: transparent; cursor: pointer; color: var(--text); box-shadow: inset 0 -3px 0 var(--lane-color, var(--border)); }
+.flow-timeline-lane-head:hover { background: var(--bg-hover); }
+.flow-timeline-lane-head strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-timeline-lane-head span { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-running { --lane-color: var(--accent); }
+.status-waiting { --lane-color: var(--warning); }
+.status-ok { --lane-color: var(--success); }
+.status-bad { --lane-color: var(--danger); }
+.status-muted { --lane-color: var(--text-faint); }
+.flow-timeline-body { position: relative; }
+.flow-timeline-svg { position: absolute; inset: 0; pointer-events: none; }
+.flow-timeline-lane-line line { stroke: var(--lane-color, var(--border)); stroke-width: 2.5; stroke-linecap: round; }
+.flow-timeline-lane-line .flow-timeline-tail { stroke-dasharray: 3 6; opacity: 0.6; }
+.flow-timeline-link { fill: none; stroke: var(--text-faint); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.8; }
+.flow-timeline-link.link-merge { stroke: var(--success); }
+.flow-timeline-link.link-dependency { stroke: var(--accent); }
+.flow-timeline-time { position: absolute; left: 10px; font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
+.flow-timeline-node { position: absolute; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 2.5px solid var(--node-color, var(--text-faint)); background: var(--bg-card); cursor: pointer; z-index: 1; }
+.flow-timeline-node:hover { transform: scale(1.25); }
+.flow-timeline-node.kind-start { --node-color: var(--accent); }
+.flow-timeline-node.kind-handoff { --node-color: var(--accent); border-radius: 3px; transform: rotate(45deg) scale(0.85); background: var(--accent); }
+.flow-timeline-node.kind-handoff:hover { transform: rotate(45deg) scale(1.1); }
+.flow-timeline-node.kind-retry { --node-color: var(--warning); border-style: dashed; }
+.flow-timeline-node.kind-minor { --node-color: var(--text-faint); width: 10px; height: 10px; margin: 2px; border-width: 2px; }
+.flow-timeline-node.kind-user { --node-color: var(--accent); background: var(--accent); width: 10px; height: 10px; margin: 2px; }
+.flow-timeline-node.kind-file { --node-color: var(--text-dim); border-radius: 3px; }
+.flow-timeline-node.kind-waiting { --node-color: var(--warning); background: var(--warning); }
+.flow-timeline-node.kind-artifact { --node-color: var(--success); border-radius: 3px; }
+.flow-timeline-node.kind-ok { --node-color: var(--success); background: var(--success); }
+.flow-timeline-node.kind-bad { --node-color: var(--danger); background: var(--danger); }
+.flow-timeline-node.kind-muted { --node-color: var(--text-faint); background: var(--text-faint); }
+.flow-timeline-label { position: absolute; font-size: 12px; line-height: 18px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flow-timeline-empty { padding: 40px; text-align: center; color: var(--text-faint); }
+.flow-timeline-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 12px; border-top: 1px solid var(--border-soft); background: var(--bg-card); font-size: 11px; color: var(--text-dim); }
+.flow-timeline-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.flow-timeline-legend .flow-timeline-node { position: static; cursor: default; flex: none; }
+.flow-timeline-legend .flow-timeline-node:hover { transform: none; }
+.flow-timeline-legend .flow-timeline-node.kind-handoff, .flow-timeline-legend .flow-timeline-node.kind-handoff:hover { transform: rotate(45deg) scale(0.85); }
+.flow-timeline-legend-link { display: inline-block; width: 22px; border-top: 1.5px dashed var(--text-faint); }
+.flow-canvas-wrap.flow-timeline-wrap { min-height: 520px; }
+.flow-timeline.is-fullscreen { background: var(--bg); }
+.flow-timeline-fullscreen { margin-left: auto; padding: 2px 6px; }

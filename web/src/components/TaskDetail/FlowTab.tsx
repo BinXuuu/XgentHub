@@ -5,6 +5,8 @@ import "@xyflow/react/dist/style.css";
 import type { AgentDescriptor, TaskFlowSnapshot, TaskRun } from "../../api/types";
 import { buildFlowGraph, latestRunForSubtask, visibleSubtasks, type AgentInfo, type FlowGraph, TASK_NODE_ID } from "./flowLayout";
 import { flowEdgeTypes, flowNodeTypes } from "./FlowNodes";
+import { buildFlowTimeline, TIMELINE_TASK_LANE } from "./flowTimeline";
+import { FlowTimelineView } from "./FlowTimelineView";
 import { ArtifactRow, CheckpointList, DomainEventRow, RecoveryRow, ReviewDecisionRow, StatusPill, clip, duration } from "./flowShared";
 
 function latestPrimaryRun(snapshot: TaskFlowSnapshot): TaskRun | null {
@@ -113,8 +115,22 @@ function FlowDetailPanel({ snapshot, selectedId, onClose }: { snapshot: TaskFlow
   );
 }
 
+type FlowView = "timeline" | "structure";
+const VIEW_KEY = "xgent.flowView";
+
+function storedView(): FlowView | null {
+  try {
+    const value = localStorage.getItem(VIEW_KEY);
+    return value === "timeline" || value === "structure" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot | null; agents?: AgentDescriptor[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 默认：记住上次选的；没选过时运行中看时间线，其它时候看结构。
+  const [view, setView] = useState<FlowView | null>(storedView);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const agentInfo = useMemo(
@@ -122,6 +138,17 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
     [agents]
   );
   const { nodes, edges } = useMemo<FlowGraph>(() => (snapshot ? buildFlowGraph(snapshot, agentInfo) : { nodes: [], edges: [] }), [snapshot, agentInfo]);
+  const timeline = useMemo(() => (snapshot ? buildFlowTimeline(snapshot, agentInfo) : null), [snapshot, agentInfo]);
+  const running = snapshot?.task.status === "running" || snapshot?.task.status === "needs_approval";
+  // 没选过时按打开那一刻定默认（运行中看时间线），之后状态变了也不自动跳，免得正看着界面自己切走。
+  const defaultView = useRef<FlowView | null>(null);
+  if (!defaultView.current && snapshot) defaultView.current = running ? "timeline" : "structure";
+  const activeView: FlowView = view ?? defaultView.current ?? "timeline";
+
+  function chooseView(next: FlowView) {
+    setView(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* 存不了就只在这次有效 */ }
+  }
 
   const onNodeClick: NodeMouseHandler = (_event, node) => {
     setSelectedId((prev) => (prev === node.id ? null : node.id));
@@ -182,6 +209,18 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
         </div>
       </div>
 
+      <div className="flow-view-switch" role="tablist" aria-label="流程视图">
+        <button type="button" role="tab" aria-selected={activeView === "timeline"} className={activeView === "timeline" ? "active" : ""} onClick={() => chooseView("timeline")}>时间线</button>
+        <button type="button" role="tab" aria-selected={activeView === "structure"} className={activeView === "structure" ? "active" : ""} onClick={() => chooseView("structure")}>结构</button>
+        <span>{activeView === "timeline" ? "每列一个子任务，从上往下按时间排；点节点或列头看详情" : "子任务按依赖关系从左到右排列；可拖动、缩放"}</span>
+      </div>
+
+      {activeView === "timeline" && timeline ? (
+        <div className="flow-canvas-wrap flow-timeline-wrap">
+          <FlowTimelineView timeline={timeline} running={running} onSelectLane={(laneId) => setSelectedId(laneId === TIMELINE_TASK_LANE ? TASK_NODE_ID : laneId)} />
+          {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} onClose={() => setSelectedId(null)} />}
+        </div>
+      ) : (
       <div className={`flow-canvas-wrap ${isFullscreen ? "flow-canvas-fullscreen" : ""}`} ref={canvasWrapRef}>
         <ReactFlow
           style={{ position: "absolute", inset: 0 }}
@@ -208,6 +247,7 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
           <div className="flow-canvas-hint">这个任务还没有拆分子任务，图上只有任务节点本身。</div>
         )}
       </div>
+      )}
     </div>
   );
 }
