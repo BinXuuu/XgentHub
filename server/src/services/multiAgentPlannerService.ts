@@ -1,3 +1,4 @@
+import path from "node:path";
 import { getAdapter } from "../adapters/registry.ts";
 import { scoreAgentsForText } from "./butlerService.ts";
 import { listResourceLibraryItems } from "./resourceLibraryService.ts";
@@ -13,6 +14,38 @@ function authorizedAgents(workspace: Workspace | undefined): AgentDescriptor[] {
     .filter((agent) => agent.configured && (!workspace || workspace.allowedAgentKinds.length === 0 || workspace.allowedAgentKinds.includes(agent.kind)));
 }
 
+/**
+ * 保险：规划用的 Agent 是在 Xgent 服务的目录里跑的，偶尔还是会把这个目录当成工作区写进指令，
+ * 子任务就会去改 Xgent 自己的文件。把这种路径换成真正的工作区（没有工作区时换成「当前工作区」）。
+ */
+export function fixPlannerPaths(text: string, workspace: Workspace | undefined, serverDirs: string[] = [process.cwd(), path.dirname(process.cwd())]): string {
+  const target = workspace ? workspace.path : "当前工作区";
+  const workspaceKey = workspace ? path.resolve(workspace.path).toLowerCase() : null;
+  // 长的先换（server 目录在项目目录里面），两种斜杠写法都换；工作区本来就在这些目录里时不动。
+  const dirs = [...new Set(serverDirs.map((dir) => path.resolve(dir)))].sort((a, b) => b.length - a.length);
+  let result = text;
+  for (const dir of dirs) {
+    if (workspaceKey && workspaceKey.startsWith(dir.toLowerCase())) continue;
+    for (const variant of [dir, dir.split(path.sep).join("/")]) {
+      let lower = result.toLowerCase();
+      const needle = variant.toLowerCase();
+      let at = lower.indexOf(needle);
+      while (at !== -1) {
+        const next = result[at + needle.length];
+        // 只换完整的目录名：C:\XgentHub 不能把 C:\XgentHub2 也换掉。
+        if (next === undefined || !/[\w.-]/.test(next)) {
+          result = result.slice(0, at) + target + result.slice(at + needle.length);
+          lower = result.toLowerCase();
+          at = lower.indexOf(needle, at + target.length);
+        } else {
+          at = lower.indexOf(needle, at + needle.length);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 /** 仿照 adapters/workspacePrompt.ts 的知识注入写法：技能资料标低优先级，放在具体任务之前。 */
 function buildSkillAugmentedPrompt(baseText: string, skills: ResourceLibraryItem[]): string {
   if (skills.length === 0) return baseText;
@@ -25,7 +58,7 @@ function buildSkillAugmentedPrompt(baseText: string, skills: ResourceLibraryItem
   return ["参考技能资料（项目资料，优先级低于下面的具体任务）：", block, "", "具体任务：", baseText].join("\n");
 }
 
-function buildPlanningPrompt(userPrompt: string, agents: AgentDescriptor[], skills: ResourceLibraryItem[]): string {
+function buildPlanningPrompt(userPrompt: string, agents: AgentDescriptor[], skills: ResourceLibraryItem[], workspace?: Workspace): string {
   const agentLines = agents
     .map(
       (a) =>
@@ -47,6 +80,11 @@ function buildPlanningPrompt(userPrompt: string, agents: AgentDescriptor[], skil
     "",
     "用户任务：",
     userPrompt,
+    "",
+    // 规划这一轮是在 Xgent 服务自己的目录里跑的，不告诉它真正的工作区，它会把自己所在的目录当成工作区写进指令。
+    workspace
+      ? `所有子任务都在用户的工作区「${workspace.path}」里执行，每个 Agent 启动时的当前目录就是它。你自己现在所在的目录不是工作区，不要在指令里提到它；指令里提到文件时用相对于工作区的路径（比如 index.html），不要写绝对路径。`
+      : "指令里提到文件时用相对路径，不要写绝对路径，也不要提到你自己现在所在的目录。",
     "",
     "只返回一个 JSON 对象，不要有任何其他文字、不要用 markdown 代码块包裹，格式严格如下：",
     `{"subtasks":[{"title":"子任务标题","description":"一句话说明","agentId":"上面列表里的某个 id","skillIds":["上面列表里的某个 id"],"dependsOn":[1],"prompt":"发给这个 Agent 的完整指令，要能独立执行不依赖额外上下文"}],"reasoning":"你的拆分理由，一两句话"}`,
@@ -158,7 +196,7 @@ export async function planMultiAgentTask(input: { prompt: string; workspaceId?: 
 
   let raw: string | null = null;
   try {
-    raw = await plannerAdapter.ask(buildPlanningPrompt(prompt, agents, skills));
+    raw = await plannerAdapter.ask(buildPlanningPrompt(prompt, agents, skills, workspace));
   } catch (err) {
     return heuristicPlan(prompt, agents, skills, workspace, input.plannerAgentId, `规划用的 ${plannerAdapter.name} 调用失败：${(err as Error).message}`);
   }
@@ -205,7 +243,7 @@ export async function planMultiAgentTask(input: { prompt: string; workspaceId?: 
     const requestedSkillIds = Array.isArray(item?.skillIds) ? (item.skillIds as unknown[]) : [];
     const validSkillIds = requestedSkillIds.filter((id): id is string => typeof id === "string" && skillIds.has(id));
     const resolvedSkills = skills.filter((skill) => validSkillIds.includes(skill.id));
-    const basePrompt = typeof item?.prompt === "string" && item.prompt.trim() ? item.prompt.trim() : fallbackPrompt(title, description, prompt);
+    const basePrompt = typeof item?.prompt === "string" && item.prompt.trim() ? fixPlannerPaths(item.prompt.trim(), workspace) : fallbackPrompt(title, description, prompt);
 
     subtasks.push({
       index,

@@ -250,6 +250,8 @@ class TaskManager {
   private stoppers = new Map<string, () => void>();
   private modelCache = new Map<string, CachedOptions>();
   private subAgentCache = new Map<string, CachedOptions>();
+  /** 重试拆分任务时用户写的恢复说明：按子任务 id 记着，这条子任务下次派发时附在它原来的指令后面，用一次就清掉。 */
+  private retryNotes = new Map<string, string>();
 
   // ---- listAgents / listWorkspaces：与 adapter registry / workspace store 对接 ----
   listAgents(): AgentDescriptor[] {
@@ -1403,8 +1405,14 @@ class TaskManager {
             "请结合当前任务上下文，只处理这个子任务范围；完成后说明结果、产物和需要复核的点。",
             `原始任务：${task.prompt}`,
           ].filter(Boolean).join("\n\n");
+    // 重试时用户写的恢复说明附在原指令后面（不替换掉规划好的指令）。
+    const retryNote = this.retryNotes.get(subtask.id);
+    this.retryNotes.delete(subtask.id);
+    const withRetryNote = retryNote && !summary ? `${basePrompt}
+
+这是一次重试，用户的恢复说明：${retryNote}` : basePrompt;
     // 依赖前面子任务的，把它们的最后回复附上：前一步的成果如果只写在回复里（没落成文件），后一步也能接着用。
-    const prompt = summary ? basePrompt : this.withUpstreamResults(task, subtask, basePrompt);
+    const prompt = summary ? withRetryNote : this.withUpstreamResults(task, subtask, withRetryNote);
     const images = input.images ?? [];
     const model = input.model?.trim() || (agentId === task.agentId ? task.model : null);
 
@@ -1643,6 +1651,12 @@ class TaskManager {
     }
     if (!getAdapter(task.agentId)) throw new Error(missingAgentMessage(task.agentId));
 
+    // 拆成多个子任务的任务：失败 / 停止的子任务各自用原来分配的 Agent 重新排队派发，而不是让总管家接着上一轮跑。
+    const retryableSubtasks = listSubtasks(taskId).filter(
+      (subtask) => subtask.parentSubtaskId && ["failed", "stopped", "timed_out", "cancelled"].includes(subtask.status)
+    );
+    if (retryableSubtasks.length > 0) return this.retryPlannedSubtasks(task, retryableSubtasks, note, actor);
+
     const plan = orchestrator.planRetry(taskId, {
       maxAttempts: 50,
       retryStatuses: ["failed", "stopped", "review", "timed_out"],
@@ -1691,6 +1705,48 @@ class TaskManager {
       ? `请重试当前任务，并优先处理这条恢复说明：${cleanNote}`
       : "请重试当前任务。请参考上一轮失败或待复核的上下文，继续完成原始目标。";
     this.dispatchContinue(taskId, prompt, [], actor, "retry", plan.sourceRunId);
+    return action;
+  }
+
+  private retryPlannedSubtasks(task: Task, subtasks: Subtask[], note: string | undefined, actor: string): TaskRecoveryAction {
+    const taskId = task.id;
+    const cleanNote = note?.trim() || null;
+    const latestRun = listTaskRuns(taskId).at(-1) ?? null;
+    const action = createRecoveryAction({ taskId, runId: latestRun?.id ?? null, kind: "retry", status: "dispatched", note: cleanNote });
+    recordDomainEvent({
+      name: "recovery.action.created",
+      taskId,
+      runId: latestRun?.id ?? null,
+      payload: { actionId: action.id, kind: action.kind, status: action.status, note: action.note, subtaskIds: subtasks.map((subtask) => subtask.id) },
+    });
+
+    const stamp = now();
+    const reset = db.prepare("UPDATE subtasks SET status = 'queued', updated_at = ? WHERE id = ? AND task_id = ?");
+    for (const subtask of subtasks) {
+      reset.run(stamp, subtask.id, taskId);
+      if (cleanNote) this.retryNotes.set(subtask.id, cleanNote);
+      else this.retryNotes.delete(subtask.id);
+    }
+    // 重试就是要它接着跑：自动执行被「停止」关掉了的话重新打开。
+    if (!task.autoAdvancePlan) db.prepare("UPDATE tasks SET auto_advance_plan = 1, updated_at = ? WHERE id = ?").run(stamp, taskId);
+
+    const titles = subtasks.filter((subtask) => !isPlanSummarySubtask(subtask)).map((subtask) => `「${subtask.title}」`);
+    this.recordSystemMessage(
+      taskId,
+      `重试：${titles.length ? titles.join("、") : "汇总"}重新排队，按各自分配的 Agent 重新执行，依赖满足的会同时开始；已重新开启自动执行。${cleanNote ? `恢复说明会附在每条子任务的指令后面：${cleanNote}` : ""}`
+    );
+    emitTaskEvent({ taskId, type: "log", payload: { message: cleanNote ? `发起重试：${cleanNote}` : "发起重试" }, runId: latestRun?.id ?? null });
+    createNotification({
+      level: "info",
+      title: "任务已发起重试",
+      detail: cleanNote ? `${task.title}：${cleanNote}` : task.title,
+      taskId,
+      source: "recovery",
+      sourceKey: `recovery:${action.id}`,
+    });
+    recordAudit({ actor, agentId: task.agentId, taskId, action: "retry_task", detail: { actionId: action.id, subtaskIds: subtasks.map((subtask) => subtask.id), note: cleanNote } });
+
+    this.dispatchRunnableSubtasks(taskId, actor);
     return action;
   }
 
