@@ -18,7 +18,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $BackupDir = Join-Path $Root "backups\data"
 $DataDir = Join-Path $Root "server\data"
 $ServiceScript = Join-Path $Root "scripts\agenthub.ps1"
-$DataFiles = @("custom-agents.json", "mcp-servers.json", "resource-library.json", "hidden-agents.json", "gateway-settings.json", "gateway-usage-ledger.json")
+$DataFiles = @("custom-agents.json", "mcp-servers.json", "resource-library.json", "skill-groups.json", "catalog-sources.json", "catalog-installs.json", "hidden-agents.json", "gateway-settings.json", "gateway-usage-ledger.json")
 
 $backups = @()
 if (Test-Path $BackupDir) {

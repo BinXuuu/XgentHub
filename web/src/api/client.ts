@@ -34,6 +34,13 @@ import type {
   RemoteAccessStatus,
   ResourceLibraryItem,
   ResourceLibraryKind,
+  SkillGroup,
+  GithubSkillPreview,
+  GithubSkillInstallResult,
+  CatalogView,
+  CatalogSourceView,
+  CatalogInstallResult,
+  SkillImportResult,
   QueuedMessage,
   StartupTaskStatus,
   SubtaskPlan,
@@ -152,14 +159,31 @@ export const api = {
     const query = params.toString();
     return request<ResourceLibraryItem[]>(`/resource-library/${kind}${query ? `?${query}` : ""}`);
   },
+  listSkillGroups: () => request<SkillGroup[]>("/skill-groups"),
+  createSkillGroup: (input: { name: string; description?: string }) => request<SkillGroup>("/skill-groups", { method: "POST", body: JSON.stringify(input) }),
+  updateSkillGroup: (id: string, input: { name: string; description?: string }) => request<SkillGroup>(`/skill-groups/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteSkillGroup: (id: string) => request<{ ok: boolean }>(`/skill-groups/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  moveSkillsToGroup: (ids: string[], groupId: string | null) => request<{ ok: boolean }>("/skill-group-members", { method: "PUT", body: JSON.stringify({ ids, groupId }) }),
+  importInstalledSkills: () => request<SkillImportResult>("/skills/import-installed", { method: "POST" }),
+  previewGithubSkills: (url: string) => request<GithubSkillPreview>("/skills/github/preview", { method: "POST", body: JSON.stringify({ url }) }),
+  installGithubSkills: (input: { url: string; paths: string[]; groupId: string | null }) =>
+    request<GithubSkillInstallResult>("/skills/github/install", { method: "POST", body: JSON.stringify(input) }),
+  getCatalog: (refresh = false) => request<CatalogView>(`/catalog${refresh ? "?refresh=1" : ""}`),
+  installCatalogItem: (input: { sourceId: string; itemId: string; inputs?: Record<string, string>; force?: boolean }) =>
+    request<CatalogInstallResult>("/catalog/install", { method: "POST", body: JSON.stringify(input) }),
+  addCatalogSource: (input: { name?: string; url: string; key?: string }) =>
+    request<CatalogSourceView>("/catalog/sources", { method: "POST", body: JSON.stringify(input) }),
+  updateCatalogSource: (id: string, input: { name?: string; url?: string; key?: string | null; enabled?: boolean }) =>
+    request<CatalogSourceView>(`/catalog/sources/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteCatalogSource: (id: string) => request<{ ok: boolean }>(`/catalog/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createResourceLibraryItem: (
     kind: ResourceLibraryKind,
-    input: { title: string; content: string; tags?: string[]; command?: string | null }
+    input: { title: string; content: string; tags?: string[]; command?: string | null; groupId?: string | null }
   ) => request<ResourceLibraryItem>(`/resource-library/${kind}`, { method: "POST", body: JSON.stringify(input) }),
   updateResourceLibraryItem: (
     kind: ResourceLibraryKind,
     id: string,
-    input: { title: string; content: string; tags?: string[]; command?: string | null }
+    input: { title: string; content: string; tags?: string[]; command?: string | null; groupId?: string | null }
   ) => request<ResourceLibraryItem>(`/resource-library/${kind}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteResourceLibraryItem: (kind: ResourceLibraryKind, id: string) =>
     request<{ ok: boolean }>(`/resource-library/${kind}/${encodeURIComponent(id)}`, { method: "DELETE" }),

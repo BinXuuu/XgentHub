@@ -23,12 +23,14 @@ test("with a non-standard database location, backups stay next to that database 
 test("a backup is a consistent, openable copy of the live database plus the JSON configs", () => {
   createKnowledgeGroup({ name: "备份前就有的组" });
   fs.writeFileSync(path.join(config.dataDir, "mcp-servers.json"), JSON.stringify([{ id: "mcp:x", name: "X" }]));
+  fs.writeFileSync(path.join(config.dataDir, "skill-groups.json"), JSON.stringify([{ id: "skill-group:x", name: "插件组" }]));
   const backupDir = path.join(env.root, "backups-a");
 
   const backup = backupData("manual", backupDir);
   assert.match(backup.name, /^\d{8}-\d{6}-manual$/);
   assert.ok(backup.sizeBytes > 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(backup.path, "mcp-servers.json"), "utf8")), [{ id: "mcp:x", name: "X" }]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(backup.path, "skill-groups.json"), "utf8")), [{ id: "skill-group:x", name: "插件组" }]);
 
   // 备份之后的改动不影响备份；备份文件能单独打开、数据完整。
   createKnowledgeGroup({ name: "备份后才建的组" });

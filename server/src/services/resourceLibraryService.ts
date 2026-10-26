@@ -2,17 +2,73 @@ import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config.ts";
 import { db } from "../db/index.ts";
-import type { ResourceLibraryItem, ResourceLibraryKind } from "../types.ts";
+import type { ResourceLibraryItem, ResourceLibraryKind, SkillGroup } from "../types.ts";
 import { tokenizeForMatch as tokenize } from "./textMatch.ts";
 import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
 
 const storePath = path.join(config.dataDir, "resource-library.json");
+const groupStorePath = path.join(config.dataDir, "skill-groups.json");
+
+function readGroups(): SkillGroup[] {
+  return readJsonFile<SkillGroup[]>(groupStorePath, [], Array.isArray);
+}
+
+export function listSkillGroups(): SkillGroup[] {
+  const skills = readStore().filter((item) => item.kind === "skill");
+  return readGroups().map((group) => ({ ...group, skillCount: skills.filter((item) => item.groupId === group.id).length }))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+}
+
+export function saveSkillGroup(input: { name: string; description?: string; source?: string | null }, id?: string): SkillGroup {
+  const name = input.name.trim();
+  if (!name) throw new Error("组名为必填项");
+  const groups = readGroups();
+  const current = id ? groups.find((group) => group.id === id) : undefined;
+  if (id && !current) throw new Error(`未知技能组: ${id}`);
+  if (groups.some((group) => group.id !== id && group.name.toLowerCase() === name.toLowerCase())) throw new Error("已存在同名技能组");
+  const stamp = now();
+  const group: SkillGroup = {
+    id: current?.id ?? `skill-group:${nanoid(10)}`, name,
+    description: input.description?.trim() ?? current?.description ?? "",
+    source: current?.source ?? input.source ?? null,
+    skillCount: 0, createdAt: current?.createdAt ?? stamp, updatedAt: stamp,
+  };
+  writeJsonAtomic(groupStorePath, [...groups.filter((entry) => entry.id !== group.id), group]);
+  return listSkillGroups().find((entry) => entry.id === group.id)!;
+}
+
+function checkGroupId(groupId: string | null | undefined): string | null {
+  if (groupId != null && typeof groupId !== "string") throw new Error("技能组格式不正确");
+  if (!groupId) return null;
+  if (!readGroups().some((group) => group.id === groupId)) throw new Error(`未知技能组: ${groupId}`);
+  return groupId;
+}
+
+export function moveSkillsToGroup(ids: string[], groupId: string | null): void {
+  const target = checkGroupId(groupId);
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) throw new Error("技能列表格式不正确");
+  const items = readStore();
+  if (ids.some((id) => !items.some((item) => item.kind === "skill" && item.id === id))) throw new Error("存在未知 Skill");
+  const selected = new Set(ids);
+  writeStore(items.map((item) => selected.has(item.id) ? { ...item, groupId: target, updatedAt: now() } : item));
+}
+
+export function deleteSkillGroup(id: string): boolean {
+  const groups = readGroups();
+  if (!groups.some((group) => group.id === id)) return false;
+  // 删除组只解除归组；角色、工作区和聊天选中的 Skill ID 保持有效。
+  writeStore(readStore().map((item) => item.kind === "skill" && item.groupId === id ? { ...item, groupId: null, updatedAt: now() } : item));
+  writeJsonAtomic(groupStorePath, groups.filter((group) => group.id !== id));
+  return true;
+}
 
 export interface ResourceLibraryInput {
   title: string;
   content: string;
   tags?: string[];
   command?: string | null;
+  groupId?: string | null;
+  sourcePath?: string | null;
 }
 
 function now(): string {
@@ -62,6 +118,8 @@ export function createResourceLibraryItem(kindInput: string, input: ResourceLibr
     content,
     tags: normalizeTags(input.tags),
     command: input.command?.trim() || null,
+    groupId: kind === "skill" ? checkGroupId(input.groupId) : null,
+    sourcePath: kind === "skill" ? input.sourcePath ?? null : null,
     createdAt: stamp,
     updatedAt: stamp,
   };
@@ -86,6 +144,7 @@ export function updateResourceLibraryItem(kindInput: string, id: string, input: 
     content,
     tags: normalizeTags(input.tags),
     command: input.command?.trim() || null,
+    groupId: kind === "skill" ? checkGroupId(input.groupId === undefined ? current.groupId : input.groupId) : null,
     updatedAt: now(),
   };
   items[idx] = updated;
@@ -141,7 +200,7 @@ function summarizeTool(item: ResourceLibraryItem): string {
 }
 
 /**
- * Skill 是"每一轮都要遵守的规则"，勾了就全文带上（超过总字数上限的只列标题）；
+ * 手写 Skill 按预算带正文；文件型 Skill 始终提供入口与触发说明，相关时读取原始文件。
  * 工具是"需要时才用的说明书"，默认只给目录（名称 + 命令），和本轮消息相关的再展开详细说明。
  */
 export function formatLibraryContext(kind: "tool" | "skill", items: ResourceLibraryItem[], options: LibraryContextOptions = {}): string | null {
@@ -152,6 +211,11 @@ export function formatLibraryContext(kind: "tool" | "skill", items: ResourceLibr
     const full: string[] = [];
     const overflow: string[] = [];
     for (const item of items) {
+      if (item.sourcePath) {
+        // 整组选入几十项时仍保留每一项入口，避免大文件把后续技能全部挤出上下文。
+        full.push(`${full.length + 1}. ${item.title}\n触发说明：${clipText(item.content, 420)}\nSKILL.md：${item.sourcePath}`);
+        continue;
+      }
       const block = `${full.length + 1}. ${item.title}\n${item.content.trim()}`;
       if (used + block.length > budget && full.length > 0) {
         overflow.push(item.title);
@@ -161,7 +225,8 @@ export function formatLibraryContext(kind: "tool" | "skill", items: ResourceLibr
       used += block.length;
     }
     return [
-      "用户在 AgentHub Skill 库里为这次对话勾选了以下 Skill，处理相关问题时按它们的要求做：",
+      "用户在 Xgent Skill 库里为这次对话勾选了以下 Skill，处理相关问题时按它们的要求做：",
+      items.some((item) => item.sourcePath) ? "文件型 Skill 使用前先读取对应 SKILL.md，再按需读取同目录的参考资料或脚本；相对路径以该 Skill 所在目录为准。只加载与当前任务有关的技能。文件不可访问或依赖/连接器未配置时请说明缺失，不要声称已加载或执行。" : null,
       ...full,
       overflow.length ? `（以下 Skill 超出单轮字数上限，这里只列标题：${overflow.join("、")}）` : null,
     ]

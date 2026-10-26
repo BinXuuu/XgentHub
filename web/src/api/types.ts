@@ -635,8 +635,54 @@ export interface ResourceLibraryItem {
   content: string;
   tags: string[];
   command: string | null;
+  groupId?: string | null;
+  sourcePath?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SkillGroup {
+  id: string;
+  name: string;
+  description: string;
+  source: string | null;
+  skillCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillImportResult {
+  imported: number;
+  skipped: number;
+  groups: number;
+  warnings: string[];
+}
+
+export interface GithubSkillCandidate {
+  path: string;
+  name: string;
+  description: string;
+  files: number;
+  bytes: number;
+  license: string;
+  openLicense: boolean | null;
+  installed: boolean;
+}
+
+export interface GithubSkillPreview {
+  repo: string;
+  ref: string;
+  commit: string;
+  url: string;
+  skills: GithubSkillCandidate[];
+  warnings: string[];
+}
+
+export interface GithubSkillInstallResult {
+  installed: number;
+  updated: number;
+  groupId: string | null;
+  warnings: string[];
 }
 
 export interface Host {
@@ -943,4 +989,63 @@ export interface UpdateStatus {
   error?: string;
   updatedAt?: string;
   log?: string;
+}
+
+export type CatalogKind = "skill" | "mcp" | "tool";
+
+export interface CatalogInput {
+  key: string;
+  label: string;
+  help?: string;
+  placeholder?: string;
+  secret?: boolean;
+  required?: boolean;
+  default?: string;
+}
+
+export interface CatalogItemView {
+  id: string;
+  sourceId: string;
+  kind: CatalogKind;
+  group?: string;
+  version: string;
+  name: string;
+  summary: string;
+  tags?: string[];
+  license?: string;
+  homepage?: string;
+  source?: { type: "github"; repo: string; ref?: string; path: string };
+  mcp?: { transport: "stdio" | "http"; command?: string; args?: string[]; url?: string };
+  inputs?: CatalogInput[];
+  status: "not_installed" | "installed" | "update";
+  installedVersion: string | null;
+  savedInputs: Record<string, string>;
+}
+
+export interface CatalogSourceView {
+  id: string;
+  name: string;
+  url: string;
+  hasKey: boolean;
+  builtin: boolean;
+  enabled: boolean;
+  catalogName: string | null;
+  description: string | null;
+  updatedAt: string | null;
+  bundled: boolean;
+  error: string | null;
+}
+
+export interface CatalogView {
+  sources: CatalogSourceView[];
+  groups: Array<{ sourceId: string; id: string; name: string; description: string }>;
+  items: CatalogItemView[];
+  warnings: string[];
+}
+
+export interface CatalogInstallResult {
+  kind: CatalogKind;
+  targetId: string;
+  action: "installed" | "updated";
+  warnings: string[];
 }

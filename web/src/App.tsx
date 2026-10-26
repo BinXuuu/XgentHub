@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, UNAUTHORIZED_EVENT } from "./api/client";
 import { Login } from "./pages/Login";
 import { NavRail, BottomNav, type NavView } from "./components/NavRail";
+import { CatalogPanel } from "./components/CatalogPanel";
 import { ApprovalAlerts } from "./components/ApprovalAlerts";
 import { Dashboard } from "./components/Dashboard";
 import { Sidebar } from "./components/Sidebar";
@@ -606,6 +607,7 @@ function DashboardShell() {
           {navView === "skills" && <ResourceCenter mode="skills" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
           {navView === "tools" && <ResourceCenter mode="tools" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
           {navView === "mcp" && <ResourceCenter mode="mcp" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
+          {navView === "catalog" && <CatalogPanel />}
           </ErrorBoundary>
         </div>
       </div>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { AgentDescriptor, AgentRole, AgentRoleInput, KnowledgeGroup, McpServerDefinition, ModelOption, ResourceLibraryItem, RoleMemory } from "../api/types";
+import type { AgentDescriptor, AgentRole, AgentRoleInput, KnowledgeGroup, McpServerDefinition, ModelOption, ResourceLibraryItem, RoleMemory, SkillGroup } from "../api/types";
 import { confirmDialog } from "../utils/dialog";
+import { SkillPicker } from "./SkillPicker";
 
 interface Props {
   role: AgentRole | null;
@@ -143,6 +144,7 @@ export function RolePanel({ role, agents, onBack, onSaved, onDeleted }: Props) {
   const [mcpServers, setMcpServers] = useState<McpServerDefinition[]>([]);
   const [tools, setTools] = useState<ResourceLibraryItem[]>([]);
   const [skills, setSkills] = useState<ResourceLibraryItem[]>([]);
+  const [skillGroups, setSkillGroups] = useState<SkillGroup[]>([]);
   const [knowledgeGroups, setKnowledgeGroups] = useState<KnowledgeGroup[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -157,12 +159,14 @@ export function RolePanel({ role, agents, onBack, onSaved, onDeleted }: Props) {
       api.listResourceLibraryItems("tool").catch(() => []),
       api.listResourceLibraryItems("skill").catch(() => []),
       api.listKnowledgeGroups().catch(() => []),
-    ]).then(([servers, toolList, skillList, groups]) => {
+      api.listSkillGroups(),
+    ]).then(([servers, toolList, skillList, groups, skillGroupList]) => {
       setMcpServers(servers.filter((server) => server.enabled));
       setTools(toolList);
       setSkills(skillList);
       setKnowledgeGroups(groups);
-    });
+      setSkillGroups(skillGroupList);
+    }).catch((err) => setMessage({ ok: false, text: `资源加载失败：${(err as Error).message}` }));
   }, []);
 
   useEffect(() => {
@@ -361,12 +365,7 @@ export function RolePanel({ role, agents, onBack, onSaved, onDeleted }: Props) {
               empty="工具库是空的。"
             />
             <span className="config-field-help">Skill</span>
-            <ChipList
-              items={skills.map((skill) => ({ id: skill.id, label: skill.title }))}
-              selected={form.skillIds}
-              onToggle={(id) => toggle("skillIds", id)}
-              empty="Skill 库是空的。"
-            />
+            <SkillPicker skills={skills} groups={skillGroups} selectedIds={form.skillIds} onChange={(ids) => set("skillIds", ids)} />
           </div>
         </section>
 

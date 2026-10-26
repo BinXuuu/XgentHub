@@ -7,6 +7,7 @@ import {
   MessageSquareText,
   Moon,
   Network,
+  Store,
   Sparkles,
   Sun,
   Wrench,
@@ -17,7 +18,7 @@ import type { TaskStatus, UpdateInfo } from "../api/types";
 import { UpdateCenter } from "./UpdateCenter";
 import { applyTheme, persistTheme, readStoredTheme, type ThemeMode } from "../utils/theme";
 
-export type NavView = "dashboard" | "chats" | "tasks" | "agents" | "knowledge" | "skills" | "tools" | "mcp";
+export type NavView = "dashboard" | "chats" | "tasks" | "agents" | "knowledge" | "skills" | "tools" | "mcp" | "catalog";
 
 interface Props {
   activeView: NavView;
@@ -34,6 +35,7 @@ const NAV_ITEMS: { id: NavView; icon: LucideIcon; label: string }[] = [
   { id: "skills", icon: Sparkles, label: "Skill" },
   { id: "tools", icon: Wrench, label: "工具" },
   { id: "mcp", icon: Network, label: "MCP" },
+  { id: "catalog", icon: Store, label: "推荐" },
 ];
 
 export function NavRail({ activeView, onViewChange, taskCounts }: Props) {

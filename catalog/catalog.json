@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "name": "Xgent 推荐目录",
+  "description": "作者整理的常用 Skill、MCP 和工具，一键装进 Xgent。Skill 从原作者的 GitHub 仓库直接下载；只收录开源许可的条目。",
+  "updatedAt": "2026-10-26",
+  "groups": [
+    { "id": "anthropic-skills", "name": "Anthropic 官方 Skill", "description": "来自 github.com/anthropics/skills，Apache-2.0 许可。文档类（docx / pdf / pptx / xlsx）是专有许可，没有收录。" },
+    { "id": "mcp-common", "name": "常用 MCP", "description": "装好后在工作区、聊天或角色里勾选就能用。大多需要本机装有 Node.js（npx）。" },
+    { "id": "tools-common", "name": "常用工具", "description": "给 Agent 的命令行工具说明，命令本身需要本机已安装。" }
+  ],
+  "items": [
+    {
+      "id": "anthropic-frontend-design", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "frontend-design", "summary": "做新界面或改版时给出有辨识度的视觉方向：审美取向、字体排版，避免千篇一律的模板感。",
+      "tags": ["前端", "设计"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/frontend-design" }
+    },
+    {
+      "id": "anthropic-webapp-testing", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "webapp-testing", "summary": "用 Playwright 操作和测试本机网页应用：验证前端功能、排查界面问题、截图、看浏览器日志。",
+      "tags": ["测试", "前端"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/webapp-testing" }
+    },
+    {
+      "id": "anthropic-web-artifacts-builder", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "web-artifacts-builder", "summary": "用 React、Tailwind CSS、shadcn/ui 做多组件的复杂 HTML 页面，适合需要状态管理、路由的场景。",
+      "tags": ["前端"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/web-artifacts-builder" }
+    },
+    {
+      "id": "anthropic-mcp-builder", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "mcp-builder", "summary": "指导编写高质量的 MCP 服务，把外部 API 接给大模型用；支持 Python（FastMCP）和 Node / TypeScript。",
+      "tags": ["开发", "MCP"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/mcp-builder" }
+    },
+    {
+      "id": "anthropic-skill-creator", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "skill-creator", "summary": "从零写新 Skill、改进已有 Skill，并跑评测比较效果、优化触发描述。",
+      "tags": ["开发", "Skill"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/skill-creator" }
+    },
+    {
+      "id": "anthropic-claude-api", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "claude-api", "summary": "Claude API / Anthropic SDK 参考：模型 ID、价格、参数、流式输出、工具调用、缓存、模型迁移。",
+      "tags": ["开发", "Claude"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/claude-api" }
+    },
+    {
+      "id": "anthropic-canvas-design", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "canvas-design", "summary": "按设计理念生成海报、插画等静态作品，输出 PNG 或 PDF；只做原创，不模仿现有作品。",
+      "tags": ["设计"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/canvas-design" }
+    },
+    {
+      "id": "anthropic-algorithmic-art", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "algorithmic-art", "summary": "用 p5.js 做生成艺术：可复现的随机种子、流场、粒子系统，可交互调参数。",
+      "tags": ["设计", "创意"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/algorithmic-art" }
+    },
+    {
+      "id": "anthropic-theme-factory", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "theme-factory", "summary": "给幻灯片、文档、报告、落地页套主题：内置 10 套配色和字体，也能现场生成新主题。",
+      "tags": ["设计"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/theme-factory" }
+    },
+    {
+      "id": "anthropic-internal-comms", "kind": "skill", "group": "anthropic-skills", "version": "1",
+      "name": "internal-comms", "summary": "写公司内部沟通材料：周报、给管理层的进展汇报、内部通讯、FAQ、事故报告、项目更新。",
+      "tags": ["写作"], "license": "Apache-2.0",
+      "source": { "type": "github", "repo": "anthropics/skills", "ref": "main", "path": "skills/internal-comms" }
+    },
+    {
+      "id": "mcp-filesystem", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "filesystem", "summary": "让 Agent 读写指定目录里的文件（只限你填的目录）。",
+      "tags": ["文件"],
+      "mcp": { "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{dir}}"] },
+      "inputs": [{ "key": "dir", "label": "允许访问的目录", "placeholder": "例如 D:\\Projects", "required": true }]
+    },
+    {
+      "id": "mcp-memory", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "memory", "summary": "基于知识图谱的长期记忆：Agent 可以记下人物、项目、偏好，之后再查。",
+      "tags": ["记忆"],
+      "mcp": { "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"] }
+    },
+    {
+      "id": "mcp-sequential-thinking", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "sequential-thinking", "summary": "分步骤思考工具：复杂问题拆成多步推理，可以回头修正前面的步骤。",
+      "tags": ["推理"],
+      "mcp": { "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"] }
+    },
+    {
+      "id": "mcp-playwright", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "playwright", "summary": "微软的浏览器自动化：打开网页、点击、填表、截图。第一次用会自动下载浏览器。",
+      "tags": ["浏览器", "测试"],
+      "mcp": { "transport": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp@latest"] }
+    },
+    {
+      "id": "mcp-context7", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "context7", "summary": "查各种开源库最新版本的官方文档和示例，减少 Agent 用过时 API 写代码。",
+      "tags": ["开发", "文档"],
+      "mcp": { "transport": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"] }
+    },
+    {
+      "id": "mcp-github", "kind": "mcp", "group": "mcp-common", "version": "1",
+      "name": "github", "summary": "GitHub 官方远程 MCP：查仓库、Issue、PR、代码。需要一个 GitHub 个人访问令牌。",
+      "tags": ["开发", "GitHub"],
+      "mcp": { "transport": "http", "url": "https://api.githubcopilot.com/mcp/", "headers": { "Authorization": "Bearer {{token}}" } },
+      "inputs": [{ "key": "token", "label": "GitHub 个人访问令牌", "help": "在 GitHub 设置 → Developer settings → Personal access tokens 里创建", "secret": true, "required": true }]
+    },
+    {
+      "id": "tool-ripgrep", "kind": "tool", "group": "tools-common", "version": "1",
+      "name": "ripgrep 代码搜索", "summary": "在大代码库里快速搜索文本，比 grep 快，默认跳过 .gitignore 里的文件。",
+      "tags": ["开发", "搜索"],
+      "tool": {
+        "content": "需要在代码里找某段文字、函数名或配置项时，用 ripgrep（rg）搜索：rg -n \"关键词\" 显示行号；-i 忽略大小写；-g \"*.ts\" 只搜某类文件；-l 只列文件名。没装时先说明需要安装 ripgrep。",
+        "command": "rg -n \"<关键词>\""
+      }
+    },
+    {
+      "id": "tool-gh", "kind": "tool", "group": "tools-common", "version": "1",
+      "name": "GitHub CLI", "summary": "用 gh 命令看 PR、Issue、CI 结果，创建 PR。需要先 gh auth login。",
+      "tags": ["开发", "GitHub"],
+      "tool": {
+        "content": "处理 GitHub 上的事务时用 gh 命令：gh pr list / gh pr view <号> / gh pr checks <号> 看 PR 和 CI；gh issue list 看 Issue；gh pr create 创建 PR（创建、合并、评论前先征得用户同意）。没登录时提示用户运行 gh auth login。",
+        "command": "gh pr status"
+      }
+    }
+  ]
+}

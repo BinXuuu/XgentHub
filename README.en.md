@@ -41,7 +41,8 @@ Xgent Hub is a local control console for the coding agents installed on your com
 - **AI task splitting with parallel execution**: describe a larger job and let a planner split it into subtasks assigned to different agents and models. Independent subtasks run at the same time, dependent ones wait, and the coordinator summarizes the results at the end; follow it all as a flow graph. `AGENTHUB_MAX_PARALLEL_SUBTASKS` in `.env` limits how many run at once (unlimited by default).
 - **Chat**: lightweight conversations with any agent, without a workspace.
 - **Roles**: wrap an agent and model into a fixed persona ("designer", "copywriter") with its own instructions and knowledge.
-- **Knowledge base, Skills, tools and MCP servers**: manage them once and attach them to workspaces, chats or roles.
+- **Knowledge base, Skills, tools and MCP servers**: manage them once and attach them to workspaces, chats or roles. Skills can be installed straight from a GitHub link (for example Anthropic's `anthropics/skills`), with each skill's license shown.
+- **Recommended catalog**: the "推荐" page lists curated skills, MCP servers and tools to install in one click, and flags new versions when the catalog changes. You can also subscribe to other catalogs (format: [catalog/README.md](catalog/README.md)).
 - **Agent diagnostics**: each agent's page checks whether its CLI is installed and logged in, lists models and usage, and gives step-by-step install instructions.
 - **Desktop app**: an Electron shell that starts the local service and logs in automatically.
 - **Phone access**: use it from your phone over the LAN or Tailscale.

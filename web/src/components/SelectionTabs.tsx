@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import type { ResourceLibraryItem, SkillGroup } from "../api/types";
 import { SelectTab } from "./SelectTab";
+import { SkillPicker } from "./SkillPicker";
 
 type Scope = "工作区" | "聊天";
 
@@ -47,21 +50,35 @@ export function ToolsTab({ scope, selectedIds, onSave }: SelectionProps) {
 }
 
 export function SkillsTab({ scope, selectedIds, onSave }: SelectionProps) {
+  const [data, setData] = useState<{ skills: ResourceLibraryItem[]; groups: SkillGroup[] } | null>(null);
+  const [draft, setDraft] = useState(selectedIds);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const selectedKey = JSON.stringify(selectedIds);
+  useEffect(() => setDraft(selectedIds), [selectedKey]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.listResourceLibraryItems("skill"), api.listSkillGroups()])
+      .then(([skills, groups]) => { if (!cancelled) setData({ skills, groups }); })
+      .catch((err) => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, []);
+  const dirty = draft.length !== selectedIds.length || draft.some((id) => !selectedIds.includes(id));
+  async function save() {
+    setSaving(true); setError(""); setMessage("");
+    try { await onSave(draft); setMessage("已保存，下一轮对话生效"); }
+    catch (err) { setError((err as Error).message); }
+    finally { setSaving(false); }
+  }
   return (
-    <SelectTab
-      title={`这个${scope}要遵循的 Skill`}
-      hint="勾选的 Skill 会在每一轮带给 Agent，下一轮生效。增删 Skill 在左侧「Skill」页。"
-      emptyText="Skill 库还是空的，去左侧「Skill」页添加。"
-      loadOptions={async () =>
-        (await api.listResourceLibraryItems("skill")).map((skill) => ({
-          id: skill.id,
-          label: skill.title,
-          detail: skill.content,
-        }))
-      }
-      selectedIds={selectedIds}
-      onSave={onSave}
-    />
+    <div className="resource-tab">
+      <div className="resource-tab-head"><div><strong>{`这个${scope}要遵循的 Skill`}</strong><span>支持整组选入；文件型技能按需读取完整说明。下一轮对话生效。</span></div>
+        <button className="btn btn-primary btn-sm" type="button" disabled={saving || !dirty || !data} onClick={() => void save()}>{saving ? "保存中..." : "保存"}</button>
+      </div>
+      {data ? <SkillPicker {...data} selectedIds={draft} onChange={(ids) => { setDraft(ids); setMessage(""); }} /> : !error && <div className="workspace-loading">正在加载...</div>}
+      {error && <div className="form-error">{error}</div>}{message && <div className="resource-tab-note ok">{message}</div>}
+    </div>
   );
 }
 

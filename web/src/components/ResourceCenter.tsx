@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../api/client";
 import { fileToKnowledgeEntries, IMPORTABLE_EXTENSIONS, isImportableFile } from "../utils/knowledgeImport";
 import { confirmDialog } from "../utils/dialog";
+import { SkillLibraryPanel } from "./SkillLibraryPanel";
 import type {
   KnowledgeEntry,
   KnowledgeGroup,
@@ -83,7 +84,7 @@ function resourceCopy(mode: Props["mode"]) {
     return {
       kicker: "Skill",
       title: "Skill 管理",
-      desc: "沉淀可复用工作方法、流程模板和执行规范。当前先做统一管理，不自动影响任务执行。",
+      desc: "同一个插件的 Skill 按组管理，在 Agent 角色、工作区或聊天中一键整组选入，也可以逐项调整。",
     };
   }
   if (mode === "mcp") {
@@ -285,6 +286,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   }
 
   useEffect(() => {
+    if (mode === "skills") return;
     if (mode === "knowledge") {
       setFilterGroupId("");
       void refreshGroups().catch((err) => setError((err as Error).message));
@@ -566,7 +568,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
         </div>
       </header>
 
-      {isKnowledge ? (
+      {mode === "skills" ? <SkillLibraryPanel /> : isKnowledge ? (
         <div className="resource-grid">
           <section className="resource-panel">
             <div className="workspace-section-head">
@@ -898,7 +900,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
             <div className="workspace-section-head">
               <div>
                 <h3>{libraryEditingId ? `编辑${itemLabel}` : `添加${itemLabel}`}</h3>
-                <span>{mode === "skills" ? "记录可复用工作流程和提示词规范。" : "记录常用命令、脚本或服务入口。"}</span>
+                <span>记录常用命令、脚本或服务入口。</span>
               </div>
             </div>
             <form className="resource-form" onSubmit={(event) => void addLibraryItem(event)}>
@@ -916,7 +918,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
                 rows={7}
                 value={content}
                 onChange={(event) => setContent(event.target.value)}
-                placeholder={mode === "skills" ? "写下触发场景、执行步骤、验收标准。" : "写下用途、参数说明、注意事项。"}
+                placeholder="写下用途、参数说明、注意事项。"
               />
               <div className="knowledge-form-row">
                 <input className="field" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="标签，用逗号分隔" />

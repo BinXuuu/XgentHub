@@ -160,6 +160,19 @@ export interface ResourceLibraryItem {
   content: string;
   tags: string[];
   command: string | null;
+  groupId?: string | null;
+  /** 本机已安装 Skill 的入口；正文与配套资源仍由原安装目录维护。 */
+  sourcePath?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillGroup {
+  id: string;
+  name: string;
+  description: string;
+  source: string | null;
+  skillCount: number;
   createdAt: string;
   updatedAt: string;
 }
