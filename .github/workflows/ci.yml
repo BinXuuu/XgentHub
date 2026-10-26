@@ -26,7 +26,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      - name: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+      - name: report failed tests
+        # 公开仓库的任务日志要登录 GitHub 才能看；把失败的测试和报错写成注释，不登录也能在运行页面上看到。
+        if: failure()
+        shell: bash
+        run: |
+          [ -f test-output.txt ] || exit 0
+          block=$(awk '/failing tests:/{f=1} f' test-output.txt | head -120 | sed 's/\r$//; s/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          [ -n "$block" ] || block=$(grep -E "✖|not ok" test-output.txt | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=npm test failed on ${{ matrix.os }} / Node ${{ matrix.node }}::${block}"
       - run: npm audit --audit-level=high
 
   linux-install:
