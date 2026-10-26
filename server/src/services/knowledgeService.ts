@@ -217,7 +217,7 @@ export function selectTurnKnowledge(groupIds: string[], query: string, relevantL
   const pool: KnowledgeEntry[] = [];
   let alwaysChars = 0;
   for (const groupId of groupIds) {
-    const entries = (db.prepare("SELECT * FROM knowledge_entries WHERE group_id = ? ORDER BY created_at ASC").all(groupId) as any[]).map(rowToEntry);
+    const entries = (db.prepare("SELECT * FROM knowledge_entries WHERE group_id = ? ORDER BY created_at ASC, rowid ASC").all(groupId) as any[]).map(rowToEntry);
     const chars = entries.reduce((sum, entry) => sum + entryChars(entry), 0);
     if (entries.length > 0 && chars <= SMALL_GROUP_MAX_CHARS && alwaysChars + chars <= ALWAYS_INCLUDED_MAX_CHARS) {
       always.push(...entries);

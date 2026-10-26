@@ -74,7 +74,7 @@ function rowToWorkspacePrompt(row: any): WorkspacePrompt {
 }
 
 export function listWorkspaces(): Workspace[] {
-  const rows = db.prepare("SELECT * FROM workspaces ORDER BY created_at ASC").all() as any[];
+  const rows = db.prepare("SELECT * FROM workspaces ORDER BY created_at ASC, rowid ASC").all() as any[];
   return rows.map(rowToWorkspace);
 }
 
@@ -158,5 +158,5 @@ export function deleteWorkspace(id: string): void {
 }
 
 export function listHosts() {
-  return db.prepare("SELECT * FROM hosts ORDER BY created_at ASC").all() as { id: string; name: string; kind: string; created_at: string }[];
+  return db.prepare("SELECT * FROM hosts ORDER BY created_at ASC, rowid ASC").all() as { id: string; name: string; kind: string; created_at: string }[];
 }

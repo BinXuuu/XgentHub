@@ -318,7 +318,7 @@ class TaskManager {
   }
 
   listTasks(): Task[] {
-    const rows = db.prepare("SELECT * FROM tasks ORDER BY updated_at DESC").all() as any[];
+    const rows = db.prepare("SELECT * FROM tasks ORDER BY updated_at DESC, rowid DESC").all() as any[];
     return rows.map(rowToTask);
   }
 
@@ -342,12 +342,12 @@ class TaskManager {
   }
 
   listMessages(taskId: string): TaskMessage[] {
-    const rows = db.prepare("SELECT * FROM task_messages WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[];
+    const rows = db.prepare("SELECT * FROM task_messages WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[];
     return rows.map(rowToMessage);
   }
 
   listEvents(taskId: string): TaskEvent[] {
-    const rows = db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[];
+    const rows = db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[];
     return rows.map(rowToEvent);
   }
 
@@ -384,8 +384,8 @@ class TaskManager {
 
   listApprovals(taskId?: string): Approval[] {
     const rows = taskId
-      ? (db.prepare("SELECT * FROM approvals WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[])
-      : (db.prepare("SELECT * FROM approvals ORDER BY created_at DESC").all() as any[]);
+      ? (db.prepare("SELECT * FROM approvals WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[])
+      : (db.prepare("SELECT * FROM approvals ORDER BY created_at DESC, rowid DESC").all() as any[]);
     return rows.map(rowToApproval);
   }
 
@@ -416,7 +416,7 @@ class TaskManager {
 
   // ---- getDiff / getFiles：统一从 file_changes 表读取，不关心具体 adapter ----
   getFiles(taskId: string): FileChange[] {
-    const rows = db.prepare("SELECT * FROM file_changes WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[];
+    const rows = db.prepare("SELECT * FROM file_changes WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[];
     return rows.map(rowToFileChange);
   }
 
@@ -1528,7 +1528,7 @@ class TaskManager {
 
   private lastAgentReply(runId: string): string {
     const rows = db
-      .prepare("SELECT payload FROM domain_events WHERE run_id = ? AND legacy_type = 'message' ORDER BY created_at DESC")
+      .prepare("SELECT payload FROM domain_events WHERE run_id = ? AND legacy_type = 'message' ORDER BY created_at DESC, rowid DESC")
       .all(runId) as Array<{ payload: string }>;
     for (const row of rows) {
       try {

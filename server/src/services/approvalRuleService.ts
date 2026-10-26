@@ -37,7 +37,7 @@ export function findMatchingAlwaysAllowRule(input: {
   const pattern = normalizeApprovalPattern(input.command);
   if (!pattern) return undefined;
   const rows = db
-    .prepare("SELECT * FROM always_allow_rules WHERE workspace_id = ? AND agent_id = ? ORDER BY created_at ASC")
+    .prepare("SELECT * FROM always_allow_rules WHERE workspace_id = ? AND agent_id = ? ORDER BY created_at ASC, rowid ASC")
     .all(input.workspaceId, input.agentId) as any[];
   const match = rows.map(rowToAlwaysAllowRule).find((rule) => matchesRulePattern(pattern, rule.pattern));
   return match;

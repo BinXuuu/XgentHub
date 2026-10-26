@@ -96,7 +96,7 @@ export function roleIdFromAgentId(agentId: string): string | null {
 }
 
 export function listRoles(): AgentRole[] {
-  return (db.prepare("SELECT * FROM agent_roles ORDER BY created_at ASC").all() as any[]).map(rowToRole);
+  return (db.prepare("SELECT * FROM agent_roles ORDER BY created_at ASC, rowid ASC").all() as any[]).map(rowToRole);
 }
 
 export function getRole(id: string): AgentRole | null {
@@ -208,7 +208,7 @@ function rowToMemory(row: any): RoleMemory {
 }
 
 export function listRoleMemories(roleId: string): RoleMemory[] {
-  return (db.prepare("SELECT * FROM role_memories WHERE role_id = ? ORDER BY created_at DESC").all(roleId) as any[]).map(rowToMemory);
+  return (db.prepare("SELECT * FROM role_memories WHERE role_id = ? ORDER BY created_at DESC, rowid DESC").all(roleId) as any[]).map(rowToMemory);
 }
 
 export function getRoleMemory(id: string): RoleMemory | null {

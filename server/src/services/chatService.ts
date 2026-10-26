@@ -176,7 +176,7 @@ function setChatStatus(chatId: string, status: ChatStatus): void {
 
 export const chatService = {
   listChats(): ChatConversation[] {
-    return (db.prepare("SELECT * FROM chats ORDER BY updated_at DESC").all() as unknown as ChatRow[]).map(toChat);
+    return (db.prepare("SELECT * FROM chats ORDER BY updated_at DESC, rowid DESC").all() as unknown as ChatRow[]).map(toChat);
   },
 
   getChat(id: string): ChatConversation | null {
@@ -285,7 +285,7 @@ export const chatService = {
   },
 
   listMessages(chatId: string): ChatMessage[] {
-    return (db.prepare("SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC").all(chatId) as unknown as ChatMessageRow[]).map(
+    return (db.prepare("SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC").all(chatId) as unknown as ChatMessageRow[]).map(
       toMessage
     );
   },

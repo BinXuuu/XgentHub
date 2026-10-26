@@ -21,8 +21,8 @@ function rowToRecoveryAction(row: any): TaskRecoveryAction {
 
 export function listRecoveryActions(taskId?: string): TaskRecoveryAction[] {
   const rows = taskId
-    ? (db.prepare("SELECT * FROM task_recovery_actions WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[])
-    : (db.prepare("SELECT * FROM task_recovery_actions ORDER BY created_at DESC").all() as any[]);
+    ? (db.prepare("SELECT * FROM task_recovery_actions WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[])
+    : (db.prepare("SELECT * FROM task_recovery_actions ORDER BY created_at DESC, rowid DESC").all() as any[]);
   return rows.map(rowToRecoveryAction);
 }
 

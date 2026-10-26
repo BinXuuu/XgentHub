@@ -261,7 +261,7 @@ export function getSnapshot(id: string): WorkspaceSnapshot | null {
 }
 
 export function listTaskSnapshots(taskId: string): WorkspaceSnapshot[] {
-  return (db.prepare("SELECT * FROM workspace_snapshots WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[]).map(rowToSnapshot);
+  return (db.prepare("SELECT * FROM workspace_snapshots WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[]).map(rowToSnapshot);
 }
 
 export function linkSnapshotMessage(snapshotId: string, messageId: string): void {
@@ -352,7 +352,7 @@ export function restoreSnapshot(
  */
 export async function pruneSnapshots(now = Date.now()): Promise<{ removed: number; workspaces: number }> {
   const cutoff = new Date(now - SNAPSHOT_KEEP_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const rows = db.prepare("SELECT id, task_id, created_at FROM workspace_snapshots ORDER BY created_at DESC").all() as {
+  const rows = db.prepare("SELECT id, task_id, created_at FROM workspace_snapshots ORDER BY created_at DESC, rowid DESC").all() as {
     id: string;
     task_id: string;
     created_at: string;

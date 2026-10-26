@@ -139,7 +139,7 @@ export function syncAgentDescriptor(agent: AgentDescriptor): AgentRecord {
 }
 
 export function listAgentRecords(): AgentRecord[] {
-  return (db.prepare("SELECT * FROM agents ORDER BY created_at ASC").all() as any[]).map(rowToAgent);
+  return (db.prepare("SELECT * FROM agents ORDER BY created_at ASC, rowid ASC").all() as any[]).map(rowToAgent);
 }
 
 export function getAgentRecord(agentId: string): AgentRecord | undefined {
@@ -270,7 +270,7 @@ export function recordArtifact(input: {
 }
 
 export function listSubtasks(taskId: string): Subtask[] {
-  return (db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[]).map(rowToSubtask);
+  return (db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[]).map(rowToSubtask);
 }
 
 export function listTaskRuns(taskId: string): TaskRun[] {
@@ -278,5 +278,5 @@ export function listTaskRuns(taskId: string): TaskRun[] {
 }
 
 export function listArtifacts(taskId: string): Artifact[] {
-  return (db.prepare("SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[]).map(rowToArtifact);
+  return (db.prepare("SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at ASC, rowid ASC").all(taskId) as any[]).map(rowToArtifact);
 }
