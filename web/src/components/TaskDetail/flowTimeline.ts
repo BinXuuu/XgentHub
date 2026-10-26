@@ -163,7 +163,8 @@ export function buildFlowTimeline(snapshot: TaskFlowSnapshot, agents: Map<string
       const who = `${agentName(agents, run.agentId)}${run.model ? ` · ${run.model}` : ""}`;
       const source = sourceOfRun.get(run.id) ?? "";
       const isHandoff = source === "agent_handoff" || (!source && previous !== null && previous.agentId !== run.agentId);
-      const isRetry = source === "retry";
+      // 上一轮停止 / 失败后又在同一列跑起来，就是重试（重试拆分任务时来源记的是「子任务派发」）。
+      const isRetry = source === "retry" || (!isHandoff && previous !== null && ["failed", "stopped", "timed_out", "cancelled"].includes(previous.status as string));
       const isFollowUp = !isHandoff && !isRetry && previous !== null;
       push({
         lane,

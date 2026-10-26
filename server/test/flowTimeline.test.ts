@@ -183,3 +183,13 @@ test("messages without a run go to the run that started within 2 seconds", () =>
   assert.equal(where("做一个网站"), "总管家:你");
   assert.equal(where("改一下颜色"), "总管家:你", "a much later message with no run nearby stays in the task lane");
 });
+
+test("a run that follows a stopped run in the same lane reads as a retry even when dispatched as a subtask", () => {
+  const base = snapshot();
+  const timeline = buildFlowTimeline({
+    ...base,
+    runs: [...base.runs.filter((entry: any) => entry.id !== "rA"), run("rA1", "A", "codex", 3, 5, "stopped"), run("rA2", "A", "codex", 6, 10, "done", { attempt: 2 })],
+    domainEvents: [event("s1", "run.started", "rA2", 6, { source: "subtask_dispatch" })],
+  }, agents);
+  assert.deepEqual(timeline.nodes.filter((node) => node.lane === 1).map((node) => node.label), ["开始 · Codex", "已停止", "重试 · Codex", "完成"]);
+});
