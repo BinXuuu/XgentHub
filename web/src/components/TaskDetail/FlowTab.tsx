@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Background, ControlButton, Controls, ReactFlow, type NodeMouseHandler } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
-import type { AgentDescriptor, TaskFlowSnapshot, TaskRun } from "../../api/types";
+import type { AgentDescriptor, Subtask, TaskFlowSnapshot, TaskRun } from "../../api/types";
+import { api } from "../../api/client";
 import { buildFlowGraph, latestRunForSubtask, visibleSubtasks, type AgentInfo, type FlowGraph, TASK_NODE_ID } from "./flowLayout";
 import { flowEdgeTypes, flowNodeTypes } from "./FlowNodes";
 import { buildFlowTimeline, TIMELINE_TASK_LANE } from "./flowTimeline";
@@ -86,7 +87,79 @@ function RunDetail({ snapshot, run }: { snapshot: TaskFlowSnapshot; run: TaskRun
   );
 }
 
-function FlowDetailPanel({ snapshot, selectedId, onClose }: { snapshot: TaskFlowSnapshot; selectedId: string; onClose: () => void }) {
+const SUMMARY_PROMPT = "__xgent_plan_summary__";
+
+/** 重做这一步会连带重跑哪些：顺着依赖往下找到的后续步骤，加上最后的汇总（和服务端 redoSubtask 一致）。 */
+function redoFollowers(snapshot: TaskFlowSnapshot, target: Subtask): Subtask[] {
+  const planned = snapshot.subtasks.filter((item) => item.parentSubtaskId);
+  const affected = new Set([target.id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const item of planned) {
+      if (!affected.has(item.id) && item.dependencyIds.some((id) => affected.has(id))) {
+        affected.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  return planned.filter((item) => item.id !== target.id && (affected.has(item.id) || item.plannedPrompt === SUMMARY_PROMPT));
+}
+
+function RedoForm({ snapshot, subtask, agents }: { snapshot: TaskFlowSnapshot; subtask: Subtask; agents: AgentDescriptor[] }) {
+  const [note, setNote] = useState("");
+  const [agentId, setAgentId] = useState(subtask.assignedAgentId ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { setAgentId(subtask.assignedAgentId ?? ""); setMessage(null); setNote(""); }, [subtask.id, subtask.assignedAgentId]);
+  const isSummary = subtask.plannedPrompt === SUMMARY_PROMPT;
+  const followers = redoFollowers(snapshot, subtask);
+  const running = [subtask, ...followers].some((item) => item.status === "running" || item.status === "needs_approval");
+  const usable = agents.filter((agent) => agent.configured);
+
+  async function submit() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.redoSubtask(snapshot.task.id, subtask.id, { note: note.trim() || undefined, agentId: agentId || null });
+      setMessage({ ok: true, text: isSummary ? "已安排重新汇总。" : "已安排重做，进度可以在时间线上看。" });
+      setNote("");
+    } catch (err) {
+      setMessage({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flow-detail-section flow-redo">
+      <div className="flow-detail-section-title">{isSummary ? "重新汇总" : "重做这一步"}</div>
+      {!isSummary && (
+        <>
+          <textarea className="field" rows={3} placeholder="修改要求（可选），比如：配色改成深色，按钮再大一点" value={note} onChange={(event) => setNote(event.target.value)} />
+          <label className="flow-redo-agent">
+            <span>交给</span>
+            <select className="field" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+              {!usable.some((agent) => agent.id === agentId) && agentId && <option value={agentId}>{agentId}</option>}
+              {usable.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+      <p className="flow-redo-hint">
+        {followers.length
+          ? `完成后会跟着重跑：${followers.map((item) => (item.plannedPrompt === SUMMARY_PROMPT ? "汇总结果" : item.title)).join("、")}。其它步骤保留原来的结果。`
+          : "其它步骤保留原来的结果。"}
+      </p>
+      {running && <p className="flow-redo-hint">这一步或它后面的步骤还在运行，等结束（或先停止）后再重做。</p>}
+      {message && <p className={message.ok ? "flow-redo-ok" : "flow-error"}>{message.text}</p>}
+      <button className="btn btn-primary btn-sm" type="button" disabled={busy || running} onClick={() => void submit()}>
+        {busy ? "安排中..." : isSummary ? "重新汇总" : "重做这一步"}
+      </button>
+    </div>
+  );
+}
+
+function FlowDetailPanel({ snapshot, selectedId, agents, onClose }: { snapshot: TaskFlowSnapshot; selectedId: string; agents: AgentDescriptor[]; onClose: () => void }) {
   const isTask = selectedId === TASK_NODE_ID;
   const subtask = isTask ? null : snapshot.subtasks.find((item) => item.id === selectedId) ?? null;
   const run = isTask ? latestPrimaryRun(snapshot) : subtask ? latestRunForSubtask(snapshot, subtask.id) : null;
@@ -106,6 +179,7 @@ function FlowDetailPanel({ snapshot, selectedId, onClose }: { snapshot: TaskFlow
       </div>
       {status && <StatusPill status={status} />}
       {isTask && <p className="flow-detail-prompt">{clip(snapshot.task.prompt, 400)}</p>}
+      {subtask?.parentSubtaskId && <RedoForm snapshot={snapshot} subtask={subtask} agents={agents} />}
       {run ? (
         <RunDetail snapshot={snapshot} run={run} />
       ) : (
@@ -218,7 +292,7 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
       {activeView === "timeline" && timeline ? (
         <div className="flow-canvas-wrap flow-timeline-wrap">
           <FlowTimelineView timeline={timeline} running={running} onSelectLane={(laneId) => setSelectedId(laneId === TIMELINE_TASK_LANE ? TASK_NODE_ID : laneId)} />
-          {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} onClose={() => setSelectedId(null)} />}
+          {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} agents={agents} onClose={() => setSelectedId(null)} />}
         </div>
       ) : (
       <div className={`flow-canvas-wrap ${isFullscreen ? "flow-canvas-fullscreen" : ""}`} ref={canvasWrapRef}>
@@ -242,7 +316,7 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
             </ControlButton>
           </Controls>
         </ReactFlow>
-        {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} onClose={() => setSelectedId(null)} />}
+        {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} agents={agents} onClose={() => setSelectedId(null)} />}
         {visibleSubtasks(snapshot).length === 0 && (
           <div className="flow-canvas-hint">这个任务还没有拆分子任务，图上只有任务节点本身。</div>
         )}

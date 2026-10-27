@@ -588,6 +588,26 @@ SELECT
   MAX(updated_at)
 FROM tasks
 GROUP BY agent_id, agent_kind;
+`);
+
+/**
+ * 给还没有主子任务 / 运行记录的老任务补上（引入子任务和运行之前创建的任务）。每次启动都会跑一遍：
+ * 以前没加「缺了才补」的条件，新任务每次重启都会多出一条空的 primary: 子任务和 initial: 运行，
+ * 流程页因此多一条空运行；这里顺带把这种多出来、什么都没挂着的空记录清掉。
+ */
+export function backfillCoreRecords(): void {
+  db.exec(`
+DELETE FROM task_runs
+WHERE id LIKE 'initial:%'
+  AND EXISTS (SELECT 1 FROM task_runs other WHERE other.task_id = task_runs.task_id AND other.id NOT LIKE 'initial:%')
+  AND NOT EXISTS (SELECT 1 FROM agent_requests request WHERE request.target_run_id = task_runs.id)
+  AND NOT EXISTS (SELECT 1 FROM domain_events event WHERE event.run_id = task_runs.id);
+
+DELETE FROM subtasks
+WHERE id LIKE 'primary:%'
+  AND EXISTS (SELECT 1 FROM subtasks other WHERE other.task_id = subtasks.task_id AND other.parent_subtask_id IS NULL AND other.id NOT LIKE 'primary:%')
+  AND NOT EXISTS (SELECT 1 FROM task_runs run WHERE run.subtask_id = subtasks.id)
+  AND NOT EXISTS (SELECT 1 FROM subtasks child WHERE child.parent_subtask_id = subtasks.id);
 
 INSERT OR IGNORE INTO subtasks (id, task_id, parent_subtask_id, title, status, assigned_agent_id, dependency_ids, created_at, updated_at)
 SELECT
@@ -600,13 +620,14 @@ SELECT
   '[]',
   created_at,
   updated_at
-FROM tasks;
+FROM tasks
+WHERE NOT EXISTS (SELECT 1 FROM subtasks existing WHERE existing.task_id = tasks.id AND existing.parent_subtask_id IS NULL);
 
 INSERT OR IGNORE INTO task_runs (id, task_id, subtask_id, agent_id, agent_kind, runtime_kind, model, status, attempt, session_key, started_at, finished_at, error)
 SELECT
   'initial:' || id,
   id,
-  'primary:' || id,
+  (SELECT primary_subtask.id FROM subtasks primary_subtask WHERE primary_subtask.task_id = tasks.id AND primary_subtask.parent_subtask_id IS NULL ORDER BY primary_subtask.created_at, primary_subtask.rowid LIMIT 1),
   agent_id,
   agent_kind,
   CASE
@@ -623,5 +644,9 @@ SELECT
   created_at,
   CASE WHEN status IN ('review', 'done', 'failed', 'stopped') THEN updated_at ELSE NULL END,
   NULL
-FROM tasks;
+FROM tasks
+WHERE NOT EXISTS (SELECT 1 FROM task_runs existing WHERE existing.task_id = tasks.id);
 `);
+}
+
+backfillCoreRecords();

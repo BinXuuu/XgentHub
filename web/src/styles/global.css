@@ -10836,3 +10836,10 @@ select.field:focus {
 .flow-canvas-wrap.flow-timeline-wrap { min-height: 520px; }
 .flow-timeline.is-fullscreen { background: var(--bg); }
 .flow-timeline-fullscreen { margin-left: auto; padding: 2px 6px; }
+.flow-redo { display: grid; gap: 8px; }
+.flow-redo textarea { resize: vertical; }
+.flow-redo-agent { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.flow-redo-agent .field { flex: 1; min-width: 0; }
+.flow-redo-hint { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.flow-redo-ok { margin: 0; font-size: 12px; color: var(--success); }
+.flow-redo .btn { justify-self: start; }

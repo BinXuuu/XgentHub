@@ -250,7 +250,7 @@ class TaskManager {
   private stoppers = new Map<string, () => void>();
   private modelCache = new Map<string, CachedOptions>();
   private subAgentCache = new Map<string, CachedOptions>();
-  /** 重试拆分任务时用户写的恢复说明：按子任务 id 记着，这条子任务下次派发时附在它原来的指令后面，用一次就清掉。 */
+  /** 重试 / 重做拆分任务时要附在子任务指令后面的话（恢复说明、修改要求）：按子任务 id 记着，下次派发时附上，用一次就清掉。 */
   private retryNotes = new Map<string, string>();
 
   // ---- listAgents / listWorkspaces：与 adapter registry / workspace store 对接 ----
@@ -1410,7 +1410,7 @@ class TaskManager {
     this.retryNotes.delete(subtask.id);
     const withRetryNote = retryNote && !summary ? `${basePrompt}
 
-这是一次重试，用户的恢复说明：${retryNote}` : basePrompt;
+${retryNote}` : basePrompt;
     // 依赖前面子任务的，把它们的最后回复附上：前一步的成果如果只写在回复里（没落成文件），后一步也能接着用。
     const prompt = summary ? withRetryNote : this.withUpstreamResults(task, subtask, withRetryNote);
     const images = input.images ?? [];
@@ -1708,6 +1708,79 @@ class TaskManager {
     return action;
   }
 
+  /**
+   * 重做拆分任务里的某一步：这一步重新排队（可以换 Agent、附修改要求），依赖它的后续步骤和最后的汇总也跟着重新排队，
+   * 跟它无关的步骤保留原来的结果。打开自动执行后按依赖顺序派发。
+   */
+  redoSubtask(taskId: string, subtaskId: string, input: { note?: string | null; agentId?: string | null }, actor: string): TaskRecoveryAction {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`未知任务: ${taskId}`);
+    const planned = listSubtasks(taskId).filter((subtask) => subtask.parentSubtaskId);
+    const target = planned.find((subtask) => subtask.id === subtaskId);
+    if (!target) throw new Error("这个任务里没有这一步（只有拆分出来的子任务可以单独重做）");
+
+    // 依赖它的所有后续步骤（顺着依赖往下找），以及最后的汇总。
+    const affected = new Set<string>([target.id]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const subtask of planned) {
+        if (!affected.has(subtask.id) && subtask.dependencyIds.some((id) => affected.has(id))) {
+          affected.add(subtask.id);
+          grew = true;
+        }
+      }
+    }
+    for (const subtask of planned) if (isPlanSummarySubtask(subtask)) affected.add(subtask.id);
+    const busy = planned.filter((subtask) => affected.has(subtask.id) && (subtask.status === "running" || subtask.status === "needs_approval"));
+    if (busy.length > 0) throw new Error(`「${busy.map((subtask) => subtask.title).join("、")}」还在运行，等它结束或先停止再重做`);
+
+    const agentId = input.agentId?.trim() || null;
+    if (agentId) {
+      const adapter = getAdapter(agentId);
+      if (!adapter) throw new Error(missingAgentMessage(agentId));
+      if (!adapter.isConfigured()) throw new Error(`${adapter.name} 还没有配置好，不能用来重做`);
+    }
+
+    const cleanNote = input.note?.trim() || null;
+    const latestRun = listTaskRuns(taskId).filter((run) => run.subtaskId === target.id).at(-1) ?? null;
+    const action = createRecoveryAction({ taskId, runId: latestRun?.id ?? null, kind: "retry", status: "dispatched", note: cleanNote });
+    recordDomainEvent({
+      name: "recovery.action.created",
+      taskId,
+      runId: latestRun?.id ?? null,
+      payload: { actionId: action.id, kind: action.kind, status: action.status, note: action.note, redoSubtaskId: target.id, subtaskIds: [...affected] },
+    });
+
+    const stamp = now();
+    const reset = db.prepare("UPDATE subtasks SET status = 'queued', updated_at = ? WHERE id = ? AND task_id = ?");
+    for (const subtask of planned) {
+      if (!affected.has(subtask.id)) continue;
+      reset.run(stamp, subtask.id, taskId);
+      if (subtask.id === target.id) {
+        if (cleanNote) this.retryNotes.set(subtask.id, `重做这一步，修改要求：${cleanNote}`);
+        else this.retryNotes.set(subtask.id, "重做这一步，请在上一轮的基础上重新完成，并说明这次改了什么。");
+      } else if (!isPlanSummarySubtask(subtask)) {
+        this.retryNotes.set(subtask.id, `上游步骤「${target.title}」刚重做过，请基于它的新结果重新完成这一步，并说明和上一轮相比有什么变化。`);
+      }
+    }
+    if (agentId && agentId !== target.assignedAgentId) {
+      db.prepare("UPDATE subtasks SET assigned_agent_id = ?, updated_at = ? WHERE id = ? AND task_id = ?").run(agentId, stamp, target.id, taskId);
+    }
+    if (!task.autoAdvancePlan) db.prepare("UPDATE tasks SET auto_advance_plan = 1, updated_at = ? WHERE id = ?").run(stamp, taskId);
+
+    const followers = planned.filter((subtask) => affected.has(subtask.id) && subtask.id !== target.id).map((subtask) => `「${subtask.title}」`);
+    const agentName = agentId ? getAdapter(agentId)?.name ?? agentId : null;
+    this.recordSystemMessage(
+      taskId,
+      `重做「${target.title}」${agentName ? `（交给 ${agentName}）` : ""}${cleanNote ? `，修改要求：${cleanNote}` : ""}。${followers.length ? `依赖它的 ${followers.join("、")} 会在它完成后跟着重跑，` : ""}其它步骤保留原来的结果；已开启自动执行。`
+    );
+    emitTaskEvent({ taskId, type: "log", payload: { message: `重做子任务「${target.title}」${cleanNote ? `：${cleanNote}` : ""}` }, runId: latestRun?.id ?? null });
+    recordAudit({ actor, agentId: task.agentId, taskId, action: "redo_subtask", detail: { actionId: action.id, subtaskId: target.id, agentId, note: cleanNote, subtaskIds: [...affected] } });
+
+    this.dispatchRunnableSubtasks(taskId, actor);
+    return action;
+  }
+
   private retryPlannedSubtasks(task: Task, subtasks: Subtask[], note: string | undefined, actor: string): TaskRecoveryAction {
     const taskId = task.id;
     const cleanNote = note?.trim() || null;
@@ -1724,7 +1797,7 @@ class TaskManager {
     const reset = db.prepare("UPDATE subtasks SET status = 'queued', updated_at = ? WHERE id = ? AND task_id = ?");
     for (const subtask of subtasks) {
       reset.run(stamp, subtask.id, taskId);
-      if (cleanNote) this.retryNotes.set(subtask.id, cleanNote);
+      if (cleanNote) this.retryNotes.set(subtask.id, `这是一次重试，用户的恢复说明：${cleanNote}`);
       else this.retryNotes.delete(subtask.id);
     }
     // 重试就是要它接着跑：自动执行被「停止」关掉了的话重新打开。

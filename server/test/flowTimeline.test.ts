@@ -193,3 +193,26 @@ test("a run that follows a stopped run in the same lane reads as a retry even wh
   }, agents);
   assert.deepEqual(timeline.nodes.filter((node) => node.lane === 1).map((node) => node.label), ["开始 · Codex", "已停止", "重试 · Codex", "完成"]);
 });
+
+test("a step dispatched again after it had finished reads as 重做", () => {
+  const base = snapshot();
+  const timeline = buildFlowTimeline({
+    ...base,
+    runs: [...base.runs.filter((entry: any) => entry.id !== "rA"), run("rA1", "A", "codex", 3, 5, "done"), run("rA2", "A", "claude", 20, 22, "done", { attempt: 2 })],
+    domainEvents: [event("s1", "run.started", "rA2", 20, { source: "subtask_dispatch" })],
+  }, agents);
+  assert.deepEqual(timeline.nodes.filter((node) => node.lane === 1).map((node) => node.label), ["开始 · Codex", "完成", "重做 · Claude Code", "完成"]);
+});
+
+test("a redo request is labelled 安排重做, a plain retry 安排重试", () => {
+  const base = snapshot();
+  const timeline = buildFlowTimeline({
+    ...base,
+    recoveryActions: [
+      { id: "ra1", taskId: "t1", runId: "rA", kind: "retry", status: "dispatched", note: "改成深色", createdAt: t(11), resolvedAt: null },
+      { id: "ra2", taskId: "t1", runId: "rC", kind: "retry", status: "dispatched", note: null, createdAt: t(15), resolvedAt: null },
+    ],
+    domainEvents: [...base.domainEvents, event("rv1", "recovery.action.created", "rA", 11, { actionId: "ra1", kind: "retry", redoSubtaskId: "A" })],
+  }, agents);
+  assert.deepEqual(timeline.nodes.filter((node) => node.kind === "recovery").map((node) => node.label), ["安排重做", "安排重试"]);
+});

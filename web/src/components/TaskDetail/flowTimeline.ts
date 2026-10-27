@@ -165,14 +165,16 @@ export function buildFlowTimeline(snapshot: TaskFlowSnapshot, agents: Map<string
       const isHandoff = source === "agent_handoff" || (!source && previous !== null && previous.agentId !== run.agentId);
       // 上一轮停止 / 失败后又在同一列跑起来，就是重试（重试拆分任务时来源记的是「子任务派发」）。
       const isRetry = source === "retry" || (!isHandoff && previous !== null && ["failed", "stopped", "timed_out", "cancelled"].includes(previous.status as string));
-      const isFollowUp = !isHandoff && !isRetry && previous !== null;
+      // 子任务列里上一轮已经做完、又被派发了一次：是用户点了「重做这一步」（或上游重做后跟着重跑）。
+      const isRedo = !isHandoff && !isRetry && source === "subtask_dispatch" && previous !== null && ["done", "review"].includes(previous.status as string);
+      const isFollowUp = !isHandoff && !isRetry && !isRedo && previous !== null;
       push({
         lane,
-        kind: isHandoff ? "handoff" : isRetry ? "retry" : "start",
+        kind: isHandoff ? "handoff" : isRetry || isRedo ? "retry" : "start",
         label: isHandoff
           ? `交接 → ${agentName(agents, run.agentId)}`
-          : isRetry
-            ? `重试 · ${agentName(agents, run.agentId)}`
+          : isRetry || isRedo
+            ? `${isRedo ? "重做" : "重试"} · ${agentName(agents, run.agentId)}`
             : `${isFollowUp ? "继续" : "开始"} · ${agentName(agents, run.agentId)}`,
         detail: `${who}\n第 ${run.attempt} 次运行`,
         at: run.startedAt,
@@ -253,9 +255,16 @@ ${payload.reason}` : ""}`, 300), at: event.createdAt });
     const pass = decision.decision === "approved";
     push({ lane: laneOfRun(run), kind: pass ? "review_pass" : "review_reject", label: pass ? "验收通过" : "验收退回", detail: decision.note ?? "", at: decision.createdAt });
   }
+  // 「重做这一步」也记成 retry 类恢复动作，事件里带着 redoSubtaskId，用它区分「重做」和「重试」。
+  const redoActions = new Set(
+    snapshot.domainEvents
+      .filter((event) => event.name === "recovery.action.created" && (event.payload as { redoSubtaskId?: string } | null)?.redoSubtaskId)
+      .map((event) => String((event.payload as { actionId?: string }).actionId))
+  );
   for (const action of snapshot.recoveryActions) {
     const run = action.runId ? runsById.get(action.runId) : undefined;
-    push({ lane: laneOfRun(run), kind: "recovery", label: action.kind === "retry" ? "安排重试" : "转人工", detail: action.note ?? "", at: action.createdAt });
+    const label = action.kind !== "retry" ? "转人工" : redoActions.has(action.id) ? "安排重做" : "安排重试";
+    push({ lane: laneOfRun(run), kind: "recovery", label, detail: action.note ?? "", at: action.createdAt });
   }
 
   // 按时间排；同一时刻的保持写入顺序。开始节点排在同一时刻的其它事件前面，结束节点排在后面。

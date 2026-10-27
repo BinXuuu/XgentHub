@@ -103,3 +103,55 @@ test("retrying a stopped multi-agent task re-queues the stopped subtasks on thei
     deleteCustomAgent(slow.id);
   }
 });
+
+test("redoing one finished step re-runs it (optionally on another agent) plus everything downstream, and keeps unrelated steps", async () => {
+  const workspace = createWorkspace({ name: "Redo Workspace", path: env.root, allowedAgentKinds: ["mock", "custom-cli"] });
+  const other = createCustomAgent({ template: "cli", name: "重做用 Agent", command: process.execPath, argsTemplate: "-e \"console.log('redo done')\"" });
+  try {
+    const task = taskManager.createTask({
+      agentId: "mock",
+      workspaceId: workspace.id,
+      title: "重做测试",
+      prompt: "三件事",
+      permissionMode: "full",
+      multiAgentPlan: {
+        prompt: "三件事", source: "llm", plannerAgentId: "mock", reasoning: "test", warnings: [],
+        subtasks: [
+          { index: 1, title: "页面", description: "", dependsOn: [], targetAgentId: "mock", skillIds: [], prompt: "做页面" },
+          { index: 2, title: "文案", description: "", dependsOn: [], targetAgentId: "mock", skillIds: [], prompt: "写文案" },
+          { index: 3, title: "检查", description: "", dependsOn: [1], targetAgentId: "mock", skillIds: [], prompt: "检查页面" },
+        ],
+      },
+      autoAdvancePlan: true,
+      actor: "test",
+    });
+    const planned = () => listSubtasks(task.id).filter((subtask) => subtask.parentSubtaskId);
+    const byTitle = (title: string) => planned().find((subtask) => subtask.title === title)!;
+    const summaryDone = () => {
+      const item = planned().find((subtask) => isPlanSummarySubtask(subtask));
+      return item && (item.status === "review" || item.status === "done") ? item : null;
+    };
+    await waitFor(summaryDone, { timeoutMs: 40_000, description: "first round finished" });
+    await waitFor(() => (taskManager.getTask(task.id)?.status === "review" ? true : null), { timeoutMs: 10_000, description: "task in review" });
+
+    assert.throws(() => taskManager.redoSubtask(task.id, "missing", {}, "test"), /没有这一步/);
+    const runsBefore = listTaskRuns(task.id).length;
+    const copyStatus = byTitle("文案").status;
+    taskManager.redoSubtask(task.id, byTitle("页面").id, { note: "改成深色配色", agentId: other.id }, "test");
+    assert.equal(byTitle("页面").assignedAgentId, other.id);
+    assert.equal(byTitle("检查").status, "queued", "downstream step waits for the redo");
+    assert.equal(byTitle("文案").status, copyStatus, "unrelated step keeps its result");
+
+    await waitFor(summaryDone, { timeoutMs: 40_000, description: "summary re-ran after the redo" });
+    const newRuns = listTaskRuns(task.id).slice(runsBefore);
+    const titleOf = (subtaskId: string | null) => planned().find((subtask) => subtask.id === subtaskId)?.title ?? (isPlanSummarySubtask(planned().find((s) => s.id === subtaskId) ?? ({} as any)) ? "汇总" : "?");
+    assert.deepEqual(newRuns.map((run) => titleOf(run.subtaskId)), ["页面", "检查", "汇总结果"], "redo, then downstream, then the summary — nothing else");
+    assert.equal(newRuns[0]!.agentId, other.id, "the redo runs on the newly chosen agent");
+    const requests = listAgentRequests(task.id);
+    assert.match(requests.find((entry) => entry.targetRunId === newRuns[0]!.id)!.prompt, /做页面[\s\S]*重做这一步，修改要求：改成深色配色/);
+    assert.match(requests.find((entry) => entry.targetRunId === newRuns[1]!.id)!.prompt, /上游步骤「页面」刚重做过/);
+    assert.ok(newRuns[1]!.startedAt >= newRuns[0]!.finishedAt!, "downstream starts after the redo finishes");
+  } finally {
+    deleteCustomAgent(other.id);
+  }
+});

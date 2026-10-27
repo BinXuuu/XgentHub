@@ -319,6 +319,8 @@ export const api = {
   stopTask: (taskId: string) => request<{ ok: boolean }>(`/tasks/${taskId}/stop`, { method: "POST" }),
   retryTask: (taskId: string, note?: string) =>
     request<TaskRecoveryAction>(`/tasks/${taskId}/retry`, { method: "POST", body: JSON.stringify({ note }) }),
+  redoSubtask: (taskId: string, subtaskId: string, input: { note?: string; agentId?: string | null }) =>
+    request<TaskRecoveryAction>(`/tasks/${taskId}/subtasks/${encodeURIComponent(subtaskId)}/redo`, { method: "POST", body: JSON.stringify(input) }),
   handoffTask: (taskId: string, note?: string) =>
     request<TaskRecoveryAction>(`/tasks/${taskId}/handoff`, { method: "POST", body: JSON.stringify({ note }) }),
   dispatchAgentHandoff: (

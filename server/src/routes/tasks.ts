@@ -463,6 +463,19 @@ export function registerTaskRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post<{ Params: { id: string; subtaskId: string }; Body: { note?: string | null; agentId?: string | null } }>(
+    "/api/tasks/:id/subtasks/:subtaskId/redo",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      try {
+        return taskManager.redoSubtask(req.params.id, req.params.subtaskId, { note: req.body?.note ?? null, agentId: req.body?.agentId ?? null }, "admin");
+      } catch (err) {
+        reply.code(400);
+        return { error: (err as Error).message };
+      }
+    }
+  );
+
   app.post<{ Params: { id: string }; Body: RecoveryBody }>("/api/tasks/:id/handoff", { preHandler: requireAuth }, async (req, reply) => {
     try {
       return taskManager.handoffToHuman(req.params.id, req.body?.note, "admin");
