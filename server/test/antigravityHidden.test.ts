@@ -3,23 +3,14 @@ import assert from "node:assert/strict";
 import { setupIsolatedDb } from "./helpers/testEnv.ts";
 
 const env = setupIsolatedDb("antigravity-hidden");
-// 用 node 代替 agy：能把收到的参数原样打出来，检查 PowerShell 这层有没有把参数弄坏。
+// 用 node 代替 agy：能把收到的参数原样打出来，检查启动这一层有没有把参数弄坏。
 process.env.ANTIGRAVITY_BIN = process.execPath;
 const { db } = await import("../src/db/index.ts");
-const { psLiteral, windowsArg, runAgyHidden, summarizeUsageText } = await import("../src/adapters/antigravity.ts");
+const { runAgyHidden, summarizeUsageText } = await import("../src/adapters/antigravity.ts");
 
 after(() => { db.close(); env.cleanup(); });
 
-test("PowerShell literals and Windows arguments are quoted safely", () => {
-  assert.equal(psLiteral("C:\\Users\\me\\agy.exe"), "'C:\\Users\\me\\agy.exe'");
-  assert.equal(psLiteral("it's"), "'it''s'");
-  assert.equal(windowsArg("/usage"), "/usage");
-  assert.equal(windowsArg("a b"), "\"a b\"");
-  assert.equal(windowsArg("say \"hi\""), "\"say \\\"hi\\\"\"");
-  assert.equal(windowsArg(""), "\"\"");
-});
-
-test("the hidden Windows call really starts the binary and passes every argument through", { skip: process.platform !== "win32" }, async () => {
+test("background agy queries really start the binary (on the hidden desktop on Windows) and pass every argument through", { skip: process.platform !== "win32" }, async () => {
   const args = ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", "/usage", "--print-timeout", "10s", "a b", "it's"];
   const result = await runAgyHidden(args, process.cwd(), 30_000);
   assert.equal(result.code, 0, result.stderr);

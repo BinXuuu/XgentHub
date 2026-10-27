@@ -1,10 +1,10 @@
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { config } from "../config.ts";
 import { scanRisk, shouldGate } from "./riskPolicy.ts";
 import { cliAvailable, killProcessTree, resolveCliBinary, spawnCli } from "./winSpawn.ts";
+import { spawnOnHiddenDesktop } from "./hiddenDesktop.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
@@ -77,11 +77,20 @@ function executableExists(bin: string): boolean {
   return false;
 }
 
+/**
+ * 启动 agy。Windows 上优先放到看不见的桌面上跑：agy 自己会再拉起后台更新、MCP 服务、执行命令用的 PowerShell / cmd，
+ * 这些子进程新开控制台时会在屏幕上闪一下黑框（尤其是服务启动后第一次用的时候）。启动器用不了时照常启动。
+ */
+function spawnAgy(args: string[], cwd: string): ChildProcess {
+  const exe = resolveCliBinary(config.antigravity.bin, { preferCmdShim: true });
+  return (exe && spawnOnHiddenDesktop(exe, args, { cwd })) || spawnCli(config.antigravity.bin, args, { cwd });
+}
+
 function runAgy(args: string[], cwd: string, timeoutMs: number): Promise<CliResult> {
   return new Promise((resolve) => {
-    let child;
+    let child: ChildProcess;
     try {
-      child = spawnCli(config.antigravity.bin, args, { cwd });
+      child = spawnAgy(args, cwd);
     } catch (err) {
       resolve({ code: null, stdout: "", stderr: "", error: err as Error });
       return;
@@ -93,7 +102,7 @@ function runAgy(args: string[], cwd: string, timeoutMs: number): Promise<CliResu
     child.stderr?.on("data", (d) => (stderr += d.toString("utf8")));
 
     const timeout = setTimeout(() => {
-      child.kill();
+      killProcessTree(child);
       resolve({ code: null, stdout, stderr: `${stderr}\nAntigravity CLI 命令超时。`.trim() });
     }, timeoutMs);
 
@@ -137,80 +146,9 @@ async function ensureAgyMcpServersRegistered(servers: McpServerSpec[], log: (mes
   }
 }
 
-/**
- * PowerShell 单引号字符串：里面不做任何转义，只有单引号要写两遍。以前这里用 JSON.stringify（反斜杠转义），
- * PowerShell 不认，脚本一启动就解析失败，agy 根本没跑起来，额度快照因此一直停在旧时间。
- */
-export function psLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-/** Start-Process 会把参数数组直接用空格拼起来，带空格或引号的参数要按 Windows 命令行规则包一层引号。 */
-export function windowsArg(value: string): string {
-  if (value && !/[\s"]/.test(value)) return value;
-  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
-}
-
+/** 查额度 / 模型这类后台查询。以前在 Windows 上靠 PowerShell 的 Start-Process 隐藏启动，现在 runAgy 统一走隐藏桌面。 */
 export function runAgyHidden(args: string[], cwd: string, timeoutMs: number): Promise<CliResult> {
-  if (process.platform !== "win32") return runAgy(args, cwd, timeoutMs);
-
-  return new Promise((resolve) => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "xgent-agy-"));
-    const stdoutFile = path.join(tempDir, "stdout.txt");
-    const stderrFile = path.join(tempDir, "stderr.txt");
-    const resolvedBin = resolveCliBinary(config.antigravity.bin, { preferCmdShim: true }) ?? config.antigravity.bin;
-    const script = `
-$ErrorActionPreference = 'Stop'
-$bin = ${psLiteral(resolvedBin)}
-$cwd = ${psLiteral(cwd)}
-$out = ${psLiteral(stdoutFile)}
-$err = ${psLiteral(stderrFile)}
-$argList = @(${args.map((arg) => psLiteral(windowsArg(arg))).join(", ")})
-$process = Start-Process -FilePath $bin -ArgumentList $argList -WorkingDirectory $cwd -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
-Write-Output $process.ExitCode
-`;
-    const encoded = Buffer.from(script, "utf16le").toString("base64");
-    const child = nodeSpawn(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-      { windowsHide: true }
-    );
-
-    let psStdout = "";
-    let psStderr = "";
-    let settled = false;
-    const finish = (fallbackCode: number | null, error?: Error) => {
-      if (settled) return;
-      settled = true;
-      let stdout = "";
-      let stderr = psStderr;
-      try {
-        if (fs.existsSync(stdoutFile)) stdout = fs.readFileSync(stdoutFile, "utf8");
-        if (fs.existsSync(stderrFile)) stderr = `${stderr}\n${fs.readFileSync(stderrFile, "utf8")}`.trim();
-      } catch {
-        // Ignore temp-file races while the child is exiting.
-      }
-      try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup.
-      }
-      const parsedCode = Number.parseInt(psStdout.trim().split(/\r?\n/).pop() ?? "", 10);
-      resolve({ code: Number.isFinite(parsedCode) ? parsedCode : fallbackCode, stdout, stderr, error });
-    };
-
-    child.stdout?.on("data", (chunk) => (psStdout += chunk.toString("utf8")));
-    child.stderr?.on("data", (chunk) => (psStderr += chunk.toString("utf8")));
-    child.on("error", (error) => finish(null, error));
-    const timeout = setTimeout(() => {
-      child.kill();
-      finish(null, undefined);
-    }, timeoutMs);
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      finish(code);
-    });
-  });
+  return runAgy(args, cwd, timeoutMs);
 }
 
 function parseListOutput(stdout: string): ModelOption[] {
@@ -606,7 +544,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeConvers
   await new Promise<void>((resolve) => {
     let child;
     try {
-      child = spawnCli(config.antigravity.bin, args, { cwd: ctx.workspacePath });
+      child = spawnAgy(args, ctx.workspacePath);
     } catch (err) {
       ctx.agentMessage(`无法启动 Antigravity CLI：${(err as Error).message}`);
       ctx.setStatus("failed");
