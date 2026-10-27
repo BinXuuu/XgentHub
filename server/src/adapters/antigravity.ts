@@ -137,7 +137,21 @@ async function ensureAgyMcpServersRegistered(servers: McpServerSpec[], log: (mes
   }
 }
 
-function runAgyHidden(args: string[], cwd: string, timeoutMs: number): Promise<CliResult> {
+/**
+ * PowerShell 单引号字符串：里面不做任何转义，只有单引号要写两遍。以前这里用 JSON.stringify（反斜杠转义），
+ * PowerShell 不认，脚本一启动就解析失败，agy 根本没跑起来，额度快照因此一直停在旧时间。
+ */
+export function psLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Start-Process 会把参数数组直接用空格拼起来，带空格或引号的参数要按 Windows 命令行规则包一层引号。 */
+export function windowsArg(value: string): string {
+  if (value && !/[\s"]/.test(value)) return value;
+  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+}
+
+export function runAgyHidden(args: string[], cwd: string, timeoutMs: number): Promise<CliResult> {
   if (process.platform !== "win32") return runAgy(args, cwd, timeoutMs);
 
   return new Promise((resolve) => {
@@ -147,11 +161,11 @@ function runAgyHidden(args: string[], cwd: string, timeoutMs: number): Promise<C
     const resolvedBin = resolveCliBinary(config.antigravity.bin, { preferCmdShim: true }) ?? config.antigravity.bin;
     const script = `
 $ErrorActionPreference = 'Stop'
-$bin = ${JSON.stringify(resolvedBin)}
-$cwd = ${JSON.stringify(cwd)}
-$out = ${JSON.stringify(stdoutFile)}
-$err = ${JSON.stringify(stderrFile)}
-$argList = ConvertFrom-Json -InputObject ${JSON.stringify(JSON.stringify(args))}
+$bin = ${psLiteral(resolvedBin)}
+$cwd = ${psLiteral(cwd)}
+$out = ${psLiteral(stdoutFile)}
+$err = ${psLiteral(stderrFile)}
+$argList = @(${args.map((arg) => psLiteral(windowsArg(arg))).join(", ")})
 $process = Start-Process -FilePath $bin -ArgumentList $argList -WorkingDirectory $cwd -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
 Write-Output $process.ExitCode
 `;
@@ -246,7 +260,7 @@ function parseListOutput(stdout: string): ModelOption[] {
     .filter(Boolean) as ModelOption[];
 }
 
-function summarizeUsageText(title: string, text: string): string | null {
+export function summarizeUsageText(title: string, text: string): string | null {
   const lines = stripAnsi(text)
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -267,7 +281,9 @@ function translateUsageLine(line: string): string {
   if (columns.length >= 4) {
     const [rawFamily, rawMetric, value, resetAt] = columns;
     const family = translateModelFamily(rawFamily);
-    const metric = translateUsageMetric(rawMetric);
+    // 新模型的指标名会带上模型名，比如 "Gemini 4 Argon Weekly Limit"：去掉重复的模型名再翻译。
+    const ownMetric = rawMetric.toLowerCase().startsWith(rawFamily.toLowerCase()) ? rawMetric.slice(rawFamily.length).trim() : rawMetric;
+    const metric = translateUsageMetric(ownMetric);
     const reset = formatResetTime(resetAt);
     return reset ? `${family}：${metric} ${value}，${reset} 重置` : `${family}：${metric} ${value}`;
   }
@@ -294,6 +310,8 @@ function translateUsageMetric(raw: string): string {
   const translations: Record<string, string> = {
     "weekly limit remaining": "本周额度剩余",
     "five hour limit remaining": "5 小时额度剩余",
+    "weekly limit": "本周额度剩余",
+    "five hour limit": "5 小时额度剩余",
     "remaining credits": "剩余点数",
     upgrade: "升级链接",
   };
@@ -315,8 +333,8 @@ function formatResetTime(raw: string): string | null {
 }
 
 async function runSlashReport(command: "/usage" | "/credits"): Promise<CliResult> {
-  // print-timeout 降低到 10s（原 30s）避免每次查询都等很久；JS 侧超时给 15s 兜底
-  return runAgyHidden(["-p", command, "--print-timeout", "10s"], process.cwd(), 15_000);
+  // 在后台跑，不卡界面；agy 单次查询本身就要 8~10 秒，三条同时跑时更慢，JS 侧给 30 秒。
+  return runAgyHidden(["-p", command, "--print-timeout", "10s"], process.cwd(), 30_000);
 }
 
 const ANTIGRAVITY_USAGE_CACHE_DIR = path.join(config.dataDir, "usage-cache");
@@ -386,7 +404,7 @@ function writeUsageSnapshot(summary: string, models?: ModelOption[]): void {
 }
 
 async function collectModelsSnapshot(): Promise<ModelOption[]> {
-  const result = await runAgyHidden(["models"], process.cwd(), 20_000);
+  const result = await runAgyHidden(["models"], process.cwd(), 30_000);
   if (result.error) return [];
   return parseListOutput(result.stdout);
 }

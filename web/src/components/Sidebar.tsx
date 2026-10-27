@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { AgentDescriptor, AgentKind, AgentRole, Host, Workspace } from "../api/types";
 import { api } from "../api/client";
 import { confirmDialog, errorDialog } from "../utils/dialog";
 import { accountLabel, agentDisplayName } from "../utils/agentAccount";
+import { loadAgentUsage } from "../utils/agentUsage";
 
 const AGENT_COLORS: Record<AgentKind, string> = {
   mock: "#6b7280",
@@ -182,12 +183,22 @@ function AgentRow({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [usage, setUsage] = useState<string | null | undefined>(undefined); // undefined = 还没查过
+  const [waiting, setWaiting] = useState(false); // 显示的是旧快照，正在等后台刷新出新的
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
 
   async function loadUsage() {
     setLoading(true);
+    let first = true;
     try {
-      const res = await api.getAgentUsage(agent.id);
-      setUsage(res.text);
+      await loadAgentUsage(agent.id, {
+        onText: (text) => {
+          setUsage(text);
+          if (first) { first = false; setLoading(false); }
+        },
+        onWaiting: (value) => { if (mounted.current) setWaiting(value); },
+        isActive: () => mounted.current,
+      });
     } catch {
       setUsage(null);
     } finally {
@@ -247,7 +258,7 @@ function AgentRow({
         )}
       </div>
       {open && (
-        <UsagePanelShell onRefresh={loadUsage} refreshing={loading}>
+        <UsagePanelShell onRefresh={loadUsage} refreshing={loading || waiting}>
           {loading && <div className="agent-usage-panel usage-loading">查询中…</div>}
           {!loading && usage && <UsagePanel text={usage} />}
           {!loading && usage === null && <div className="agent-usage-panel usage-empty">查不到用量信息</div>}

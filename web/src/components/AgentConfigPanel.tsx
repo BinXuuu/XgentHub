@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   AgentConfigResponse,
   AgentDescriptor,
@@ -11,6 +11,7 @@ import type {
   ModelOption,
 } from "../api/types";
 import { api } from "../api/client";
+import { loadAgentUsage } from "../utils/agentUsage";
 import { copyText } from "../utils/clipboard";
 import { confirmDialog } from "../utils/dialog";
 import { agentDisplayName } from "../utils/agentAccount";
@@ -37,6 +38,13 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
   const [models, setModels] = useState<ModelOption[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [usage, setUsage] = useState<string | null | undefined>(undefined);
+  const [usageWaiting, setUsageWaiting] = useState(false); // 显示的是旧快照，正在等后台刷新出新的
+  const usageAgentRef = useRef(agent.id);
+  useEffect(() => {
+    usageAgentRef.current = agent.id;
+    setUsageWaiting(false);
+    return () => { usageAgentRef.current = ""; };
+  }, [agent.id]);
   const [deleting, setDeleting] = useState(false);
   const [diagnostics, setDiagnostics] = useState<AgentDiagnostics | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
@@ -290,11 +298,16 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
 
   async function queryUsage() {
     setUsage(undefined);
+    const agentId = agent.id;
+    const active = () => usageAgentRef.current === agentId;
     try {
-      const res = await api.getAgentUsage(agent.id);
-      setUsage(res.text);
+      await loadAgentUsage(agentId, {
+        onText: (text) => { if (active()) setUsage(text); },
+        onWaiting: (value) => { if (active()) setUsageWaiting(value); },
+        isActive: active,
+      });
     } catch {
-      setUsage(null);
+      if (active()) setUsage(null);
     }
   }
 
@@ -753,8 +766,8 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
               </div>
               <div className="config-tools">
                 {agent.supportsUsage && (
-                  <button className="btn btn-sm" onClick={queryUsage}>
-                    查询用量
+                  <button className="btn btn-sm" onClick={queryUsage} disabled={usageWaiting}>
+                    {usageWaiting ? "等待新快照..." : "查询用量"}
                   </button>
                 )}
                 {agent.supportsModelSelection && (
