@@ -345,6 +345,7 @@ async function handleLine(ctx: TaskRuntimeContext, line: string): Promise<void> 
       break;
     }
     case "turn.completed":
+      if (evt.usage) ctx.reportUsage?.(evt.usage);
       ctx.setStatus("review");
       break;
     case "turn.failed": {

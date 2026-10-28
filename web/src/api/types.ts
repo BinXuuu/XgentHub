@@ -857,6 +857,15 @@ export interface TaskRun {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
+  /** 这次运行用掉的 token；Agent 没报用量时是 null。 */
+  usage?: TokenUsage | null;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
 }
 
 export interface Artifact {

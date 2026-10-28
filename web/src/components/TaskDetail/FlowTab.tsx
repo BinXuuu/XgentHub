@@ -8,7 +8,7 @@ import { buildFlowGraph, latestRunForSubtask, visibleSubtasks, type AgentInfo, t
 import { flowEdgeTypes, flowNodeTypes } from "./FlowNodes";
 import { buildFlowTimeline, TIMELINE_TASK_LANE } from "./flowTimeline";
 import { FlowTimelineView } from "./FlowTimelineView";
-import { ArtifactRow, CheckpointList, DomainEventRow, RecoveryRow, ReviewDecisionRow, StatusPill, clip, duration } from "./flowShared";
+import { ArtifactRow, CheckpointList, DomainEventRow, RecoveryRow, ReviewDecisionRow, StatusPill, clip, duration, fmtTokens, sumRunTokens } from "./flowShared";
 
 function latestPrimaryRun(snapshot: TaskFlowSnapshot): TaskRun | null {
   let latest: TaskRun | null = null;
@@ -192,6 +192,16 @@ function FlowDetailPanel({ snapshot, selectedId, agents, onClose }: { snapshot: 
 type FlowView = "timeline" | "structure";
 const VIEW_KEY = "xgent.flowView";
 
+const TOKENS_KEY = "xgent.flow.showTokens";
+
+function storedShowTokens(): boolean {
+  try {
+    return localStorage.getItem(TOKENS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function storedView(): FlowView | null {
   try {
     const value = localStorage.getItem(VIEW_KEY);
@@ -206,18 +216,34 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
   // 默认：记住上次选的；没选过时运行中看时间线，其它时候看结构。
   const [view, setView] = useState<FlowView | null>(storedView);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showTokens, setShowTokens] = useState(storedShowTokens);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const agentInfo = useMemo(
     () => new Map<string, AgentInfo>(agents.map((agent) => [agent.id, { name: agent.name, defaultModel: agent.defaultModel ?? null }])),
     [agents]
   );
-  const { nodes, edges } = useMemo<FlowGraph>(() => (snapshot ? buildFlowGraph(snapshot, agentInfo) : { nodes: [], edges: [] }), [snapshot, agentInfo]);
+  const { nodes, edges } = useMemo<FlowGraph>(
+    () => (snapshot ? buildFlowGraph(snapshot, agentInfo, showTokens) : { nodes: [], edges: [] }),
+    [snapshot, agentInfo, showTokens]
+  );
+  const tokensByRunEnd = useMemo(() => {
+    if (!showTokens || !snapshot) return undefined;
+    const map = new Map<string, number>();
+    for (const run of snapshot.runs) if (run.finishedAt && run.usage) map.set(run.finishedAt, (map.get(run.finishedAt) ?? 0) + run.usage.totalTokens);
+    return map;
+  }, [snapshot, showTokens]);
+  const totalTokens = snapshot ? sumRunTokens(snapshot.runs) : null;
   const timeline = useMemo(() => (snapshot ? buildFlowTimeline(snapshot, agentInfo) : null), [snapshot, agentInfo]);
   const running = snapshot?.task.status === "running" || snapshot?.task.status === "needs_approval";
   // 没选过时按打开那一刻定默认（运行中看时间线），之后状态变了也不自动跳，免得正看着界面自己切走。
   const defaultView = useRef<FlowView | null>(null);
   if (!defaultView.current && snapshot) defaultView.current = running ? "timeline" : "structure";
   const activeView: FlowView = view ?? defaultView.current ?? "timeline";
+
+  function toggleTokens(next: boolean) {
+    setShowTokens(next);
+    try { localStorage.setItem(TOKENS_KEY, next ? "1" : "0"); } catch { /* 存不了就只在这次有效 */ }
+  }
 
   function chooseView(next: FlowView) {
     setView(next);
@@ -281,17 +307,27 @@ export function FlowTab({ snapshot, agents = [] }: { snapshot: TaskFlowSnapshot 
           <span>事件</span>
           <strong>{snapshot.domainEvents.length}</strong>
         </div>
+        {showTokens && (
+          <div className="flow-metric" title="所有运行用掉的 token 合计（输入 + 缓存命中 + 输出）；不报用量的 Agent 不计入">
+            <span>Token</span>
+            <strong>{totalTokens === null ? "—" : fmtTokens(totalTokens)}</strong>
+          </div>
+        )}
       </div>
 
       <div className="flow-view-switch" role="tablist" aria-label="流程视图">
         <button type="button" role="tab" aria-selected={activeView === "timeline"} className={activeView === "timeline" ? "active" : ""} onClick={() => chooseView("timeline")}>时间线</button>
         <button type="button" role="tab" aria-selected={activeView === "structure"} className={activeView === "structure" ? "active" : ""} onClick={() => chooseView("structure")}>结构</button>
         <span>{activeView === "timeline" ? "每列一个子任务，从上往下按时间排；点节点或列头看详情" : "子任务按依赖关系从左到右排列；可拖动、缩放"}</span>
+        <label className="flow-token-toggle" title="Agent 报了用量才有数字；不报用量的显示「—」">
+          <input type="checkbox" checked={showTokens} onChange={(e) => toggleTokens(e.target.checked)} />
+          显示 Token
+        </label>
       </div>
 
       {activeView === "timeline" && timeline ? (
         <div className="flow-canvas-wrap flow-timeline-wrap">
-          <FlowTimelineView timeline={timeline} running={running} onSelectLane={(laneId) => setSelectedId(laneId === TIMELINE_TASK_LANE ? TASK_NODE_ID : laneId)} />
+          <FlowTimelineView timeline={timeline} running={running} tokensByRunEnd={tokensByRunEnd} onSelectLane={(laneId) => setSelectedId(laneId === TIMELINE_TASK_LANE ? TASK_NODE_ID : laneId)} />
           {selectedId && <FlowDetailPanel snapshot={snapshot} selectedId={selectedId} agents={agents} onClose={() => setSelectedId(null)} />}
         </div>
       ) : (

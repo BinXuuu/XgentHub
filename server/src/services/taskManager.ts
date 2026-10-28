@@ -6,6 +6,7 @@ import { getAdapter, isProtectedAgent, listAdapters, toDescriptor } from "../ada
 import { runtimeKindFromAgentKind } from "../adapters/runtimeMetadata.ts";
 import { recordAudit } from "./auditService.ts";
 import {
+  addRunUsage,
   ensurePrimarySubtask,
   listArtifacts,
   listSubtasks,
@@ -15,6 +16,7 @@ import {
   syncRunSessionKey,
 } from "./coreModelService.ts";
 import { orchestrator } from "../orchestrator/orchestratorService.ts";
+import { normalizeUsage } from "../adapters/tokenUsage.ts";
 import { getWorkspace, getWorkspacePrompt, listWorkspaces as listWorkspaceRecords } from "./workspaceService.ts";
 import * as queueDb from "./queueService.ts";
 import { deleteAttachmentFile } from "./attachmentService.ts";
@@ -648,6 +650,11 @@ class TaskManager {
       reportModel: (model: string) => {
         if (!runId || !model.trim() || !taskStillExists()) return;
         db.prepare("UPDATE task_runs SET model = ? WHERE id = ? AND (model IS NULL OR model = '')").run(model.trim(), runId);
+      },
+      reportUsage: (raw: unknown) => {
+        const usage = normalizeUsage(raw);
+        if (!runId || !usage || !taskStillExists()) return;
+        addRunUsage(runId, usage);
       },
     };
   }

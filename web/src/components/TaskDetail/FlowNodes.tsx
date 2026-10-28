@@ -13,10 +13,11 @@ export function TaskFlowNode({ data }: NodeProps<FlowNode>) {
       </div>
       <strong title={data.label}>{data.label}</strong>
       <div className="flow-node-meta">
-        <span>{data.agentLabel}</span>
-        {data.modelLabel && <span>{data.modelLabel}</span>}
+        <span title={data.agentLabel}>{data.agentLabel}</span>
+        {data.modelLabel && <span title={data.modelLabel}>{data.modelLabel}</span>}
         <span>{data.meta}</span>
       </div>
+      {data.tokens && <div className="flow-node-tokens" title="总管家自己这几轮用掉的 token（输入 + 缓存命中 + 输出）">Token {data.tokens}</div>}
     </div>
   );
 }
@@ -32,12 +33,13 @@ export function SubtaskFlowNode({ data }: NodeProps<FlowNode>) {
       </div>
       <strong title={data.label}>{data.label}</strong>
       <div className="flow-node-meta">
-        <span>{data.agentLabel}</span>
-        {data.modelLabel && <span>{data.modelLabel}</span>}
+        <span title={data.agentLabel}>{data.agentLabel}</span>
+        {data.modelLabel && <span title={data.modelLabel}>{data.modelLabel}</span>}
       </div>
       <div className="flow-node-meta">
         <span>{data.meta}</span>
       </div>
+      {data.tokens && <div className="flow-node-tokens" title="这个子任务所有运行（含重试、重做）用掉的 token 合计">Token {data.tokens}</div>}
     </div>
   );
 }

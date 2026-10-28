@@ -452,7 +452,10 @@ function createStreamHandler(ctx: TaskRuntimeContext) {
         finalStatus = "failed";
       } else if (status === "SUCCESS") {
         ctx.agentMessage(response || "(空响应)");
-        if (result.usage) ctx.log(`[antigravity] usage ${JSON.stringify(result.usage)}`);
+        if (result.usage) {
+          ctx.log(`[antigravity] usage ${JSON.stringify(result.usage)}`);
+          ctx.reportUsage?.(result.usage);
+        }
         ctx.setStatus("review");
         finalStatus = "review";
       } else {

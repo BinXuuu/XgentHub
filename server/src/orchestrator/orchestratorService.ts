@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { db } from "../db/index.ts";
-import { createTaskRunForAgent, listSubtasks, syncRunStatus } from "../services/coreModelService.ts";
+import { createTaskRunForAgent, listSubtasks, rowToUsage, syncRunStatus } from "../services/coreModelService.ts";
 import { emitTaskStatusChanged, recordDomainEvent } from "../services/eventService.ts";
 import {
   canRetryRun,
@@ -67,6 +67,7 @@ function rowToRun(row: any): TaskRun {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     error: row.error,
+    usage: rowToUsage(row),
   };
 }
 

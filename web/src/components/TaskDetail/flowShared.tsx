@@ -78,6 +78,19 @@ export function clip(text: string | null | undefined, length = 120): string {
   return text.length > length ? `${text.slice(0, length - 1)}...` : text;
 }
 
+/** 12345 → 12.3k，1234567 → 1.23M。 */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
+}
+
+/** 几次运行加起来用了多少 token；一次都没报用量就是 null（显示「—」而不是 0，免得误以为没花）。 */
+export function sumRunTokens(runs: TaskRun[]): number | null {
+  const reported = runs.filter((run) => run.usage);
+  return reported.length ? reported.reduce((sum, run) => sum + (run.usage?.totalTokens ?? 0), 0) : null;
+}
+
 export function shortId(id: string): string {
   return id.includes(":") ? id.split(":").pop()!.slice(0, 8) : id.slice(0, 8);
 }

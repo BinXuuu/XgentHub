@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { db } from "../db/index.ts";
 import { getRuntimeProfile, runtimeKindFromAgentKind } from "../adapters/runtimeMetadata.ts";
 import type {
+  TokenUsage,
   AgentDescriptor,
   AgentKind,
   AgentRecord,
@@ -77,7 +78,23 @@ function rowToRun(row: any): TaskRun {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     error: row.error,
+    usage: rowToUsage(row),
   };
+}
+
+export function rowToUsage(row: any): TokenUsage | null {
+  if (row.input_tokens == null && row.output_tokens == null && row.cached_tokens == null) return null;
+  const inputTokens = Number(row.input_tokens) || 0;
+  const outputTokens = Number(row.output_tokens) || 0;
+  const cachedTokens = Number(row.cached_tokens) || 0;
+  return { inputTokens, outputTokens, cachedTokens, totalTokens: inputTokens + outputTokens + cachedTokens };
+}
+
+/** 累加到这次运行上：多步的 Agent（DeepSeek Harness 每一步报一次）会报好几次。 */
+export function addRunUsage(runId: string, usage: TokenUsage): void {
+  db.prepare(
+    `UPDATE task_runs SET input_tokens = COALESCE(input_tokens, 0) + ?, output_tokens = COALESCE(output_tokens, 0) + ?, cached_tokens = COALESCE(cached_tokens, 0) + ? WHERE id = ?`
+  ).run(usage.inputTokens, usage.outputTokens, usage.cachedTokens, runId);
 }
 
 function rowToArtifact(row: any): Artifact {

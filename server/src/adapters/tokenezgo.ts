@@ -56,7 +56,8 @@ async function streamChatCompletion(
       "content-type": "application/json",
       ...authHeaders(),
     },
-    body: JSON.stringify({ model, messages, stream: true }),
+    // include_usage：最后多发一块带 usage 的数据，流程图显示每一轮用了多少 token（new-api 支持）。
+    body: JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } }),
     signal,
   });
 
@@ -83,6 +84,7 @@ async function streamChatCompletion(
       if (data === "[DONE]") continue;
       try {
         const json = JSON.parse(data);
+        if (json?.usage) ctx.reportUsage?.(json.usage);
         const delta: string | undefined = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
         if (delta) {
           full += delta;

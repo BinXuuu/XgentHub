@@ -326,6 +326,8 @@ export class CustomApiAdapter implements AgentAdapter {
           if (!data || data === "[DONE]") continue;
           try {
             const json = JSON.parse(data);
+            // 不主动加 stream_options（有的接口不认会报错），接口自己带了 usage 就记下。
+            if (json?.usage) ctx.reportUsage?.(json.usage);
             const delta = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
             if (delta) {
               full += delta;

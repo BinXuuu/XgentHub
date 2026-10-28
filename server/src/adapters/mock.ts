@@ -93,6 +93,7 @@ export class MockAdapter implements AgentAdapter {
       ctx.log(`权限等级 "${ctx.permissionMode}"：跳过高风险审批，直接推送`);
     }
 
+    ctx.reportUsage?.({ input_tokens: 1200, output_tokens: 300, cache_read_input_tokens: 500 });
     if (pushDenied) {
       ctx.agentMessage(`已跳过 git push（原因：${pushNote ?? "用户拒绝"}），改动仍保留在本地工作区。`);
       ctx.setStatus("review");
@@ -109,6 +110,7 @@ export class MockAdapter implements AgentAdapter {
     ctx.log(`收到追加消息：${input.text}`);
     await sleep(300);
     ctx.agentMessage(`（mock）已收到你的补充："${input.text}"。这是一个模拟回复，用于演示继续对话。`);
+    ctx.reportUsage?.({ input_tokens: 200, output_tokens: 50 });
     ctx.setStatus("review");
   }
 

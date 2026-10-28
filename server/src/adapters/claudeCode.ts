@@ -254,6 +254,7 @@ function createLineHandler(ctx: TaskRuntimeContext, cli: StreamJsonCli, state: {
           sawAssistantText = true;
         }
       } else if (type === "result") {
+        if (evt.usage) ctx.reportUsage?.(evt.usage);
         // 只有前面没拿到过任何文本块时才用 result 兜底，避免重复
         if (!sawAssistantText && typeof evt.result === "string") say(evt.result);
       } else if (type === "tool_result" || type === "tool_use_result") {

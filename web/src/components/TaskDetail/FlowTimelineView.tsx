@@ -1,6 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import type { FlowTimeline, TimelineNode, TimelineNodeKind } from "./flowTimeline";
+import { fmtTokens } from "./flowShared";
+
+/** 一次运行结束的节点：打开「显示 Token」时这次运行的用量跟在它后面。 */
+const RUN_END_KINDS = new Set<TimelineNodeKind>(["done", "failed", "stopped"]);
 
 const MIN_LANE_WIDTH = 150;
 const MAX_LANE_WIDTH = 260;
@@ -55,7 +59,18 @@ function laneStatusClass(status: string): string {
 }
 
 /** 时间线泳道：每列一个子任务，从上往下按时间排；跨列虚线表示派发、依赖和汇总。 */
-export function FlowTimelineView({ timeline, running, onSelectLane }: { timeline: FlowTimeline; running: boolean; onSelectLane: (laneId: string) => void }) {
+export function FlowTimelineView({
+  timeline,
+  running,
+  onSelectLane,
+  tokensByRunEnd,
+}: {
+  timeline: FlowTimeline;
+  running: boolean;
+  onSelectLane: (laneId: string) => void;
+  /** 打开「显示 Token」时传：运行结束时间 → 这次运行用掉的 token，跟在「完成 / 失败 / 已停止」节点后面。 */
+  tokensByRunEnd?: Map<string, number>;
+}) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
@@ -158,6 +173,9 @@ export function FlowTimelineView({ timeline, running, onSelectLane }: { timeline
                 />
                 <span className="flow-timeline-label" style={{ left: x + 13, top: y - 9, maxWidth: laneWidth - NODE_X - 22 }} title={node.detail || node.label}>
                   {node.label}
+                  {tokensByRunEnd && RUN_END_KINDS.has(node.kind) && tokensByRunEnd.has(node.at) && (
+                    <em className="flow-timeline-tokens"> · {fmtTokens(tokensByRunEnd.get(node.at)!)} tokens</em>
+                  )}
                 </span>
               </div>
             );

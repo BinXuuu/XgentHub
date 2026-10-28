@@ -34,6 +34,18 @@ function extractText(json: OpenAIResponse): string {
   return json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? "";
 }
 
+/** 流式最后一块里的 usage（请求带了 stream_options.include_usage 才有）。 */
+function parseSseUsage(line: string): unknown {
+  if (!line.startsWith("data:")) return null;
+  const data = line.slice(5).trim();
+  if (!data || data === "[DONE]") return null;
+  try {
+    return JSON.parse(data)?.usage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function parseSseDelta(line: string): string {
   if (!line.startsWith("data:")) return "";
   const data = line.slice(5).trim();
@@ -67,7 +79,7 @@ async function streamChatCompletion(ctx: TaskRuntimeContext, model: string, mess
       "content-type": "application/json",
       ...authHeaders(),
     },
-    body: JSON.stringify({ model, messages, stream: true }),
+    body: JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } }),
     signal,
   });
 
@@ -93,6 +105,8 @@ async function streamChatCompletion(ctx: TaskRuntimeContext, model: string, mess
     while ((idx = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
+      const usage = parseSseUsage(line);
+      if (usage) ctx.reportUsage?.(usage);
       const delta = parseSseDelta(line);
       if (delta) {
         sawSse = true;

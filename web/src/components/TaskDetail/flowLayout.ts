@@ -1,10 +1,12 @@
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import type { Subtask, TaskFlowSnapshot, TaskRun } from "../../api/types";
+import { fmtTokens, sumRunTokens } from "./flowShared";
 
 export const TASK_NODE_ID = "task";
 const NODE_WIDTH = 184; // 和 .flow-graph-node 的宽度一致
 const COLUMN_WIDTH = 250;
 const NODE_SLOT = 108; // 一个节点占的纵向空间
+const TOKEN_LINE = 22; // 打开「显示 Token」后卡片多出来的一行
 const LANE_SLOT = 34; // 一条跨列连线在中间列里占的"过道"
 
 export interface FlowNodeData {
@@ -14,6 +16,8 @@ export interface FlowNodeData {
   agentLabel: string;
   modelLabel: string | null;
   meta: string;
+  /** 打开「显示 Token」时才有：这个节点所有运行用掉的 token 合计（已格式化）。 */
+  tokens?: string | null;
   [key: string]: unknown;
 }
 
@@ -62,8 +66,14 @@ function modelText(model: string | null | undefined, agent: AgentInfo | undefine
  * 3. 同一列里按上下游的平均位置排序几轮，减少连线交叉。
  * 子任务一般是个位数，不需要 dagre / elkjs 这类库。
  */
-export function buildFlowGraph(snapshot: TaskFlowSnapshot, agents: Map<string, AgentInfo> = new Map()): FlowGraph {
+export function buildFlowGraph(snapshot: TaskFlowSnapshot, agents: Map<string, AgentInfo> = new Map(), showTokens = false): FlowGraph {
   const subtasks = visibleSubtasks(snapshot);
+  const visibleIds = new Set(subtasks.map((subtask) => subtask.id));
+  const tokensOf = (runs: TaskRun[]) => {
+    if (!showTokens) return undefined;
+    const total = sumRunTokens(runs);
+    return total === null ? "—" : fmtTokens(total);
+  };
   const byId = new Map(subtasks.map((item) => [item.id, item]));
   const depsOf = (subtask: Subtask) => subtask.dependencyIds.filter((id) => byId.has(id));
   const depthCache = new Map<string, number>();
@@ -148,9 +158,10 @@ export function buildFlowGraph(snapshot: TaskFlowSnapshot, agents: Map<string, A
   }
 
   // 纵向坐标：每列各自上下居中。
-  const slotOf = (item: Item) => (item.kind === "node" ? NODE_SLOT : LANE_SLOT);
+  const nodeSlot = showTokens ? NODE_SLOT + TOKEN_LINE : NODE_SLOT;
+  const slotOf = (item: Item) => (item.kind === "node" ? nodeSlot : LANE_SLOT);
   const columnHeight = (layer: Item[]) => layer.reduce((sum, item) => sum + slotOf(item), 0);
-  const tallest = Math.max(NODE_SLOT, ...layers.map(columnHeight));
+  const tallest = Math.max(nodeSlot, ...layers.map(columnHeight));
   const topById = new Map<string, number>();
   layers.forEach((layer) => {
     let y = (tallest - columnHeight(layer)) / 2;
@@ -173,6 +184,8 @@ export function buildFlowGraph(snapshot: TaskFlowSnapshot, agents: Map<string, A
       agentLabel: taskAgent?.name ?? snapshot.task.agentKind,
       modelLabel: modelText(snapshot.task.model, taskAgent),
       meta: fmtCreatedAt(snapshot.task.createdAt),
+      // 任务卡片算总管家自己的运行（没挂在可见子任务上的），子任务各算各的。
+      tokens: tokensOf(snapshot.runs.filter((run) => !run.subtaskId || !visibleIds.has(run.subtaskId))),
     },
     sourcePosition: Position.Right,
     draggable: true,
@@ -193,6 +206,7 @@ export function buildFlowGraph(snapshot: TaskFlowSnapshot, agents: Map<string, A
         agentLabel: agent?.name ?? (agentId || "未分配"),
         modelLabel: modelText(run?.model, agent),
         meta: run ? `运行 #${run.attempt}` : "尚未运行",
+        tokens: tokensOf(snapshot.runs.filter((item) => item.subtaskId === subtask.id)),
       },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,

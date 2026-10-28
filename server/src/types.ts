@@ -320,6 +320,14 @@ export interface MultiAgentPlan {
   warnings: string[];
 }
 
+/** 一次运行用掉的 token：输入（不含缓存命中）、输出、缓存命中，合计是三者相加。 */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+}
+
 export interface TaskRun {
   id: string;
   taskId: string;
@@ -334,6 +342,8 @@ export interface TaskRun {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
+  /** Agent 报了用量才有；不报用量的 Agent（或这次还没跑完）是 null。 */
+  usage: TokenUsage | null;
 }
 
 export interface Artifact {

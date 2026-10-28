@@ -68,6 +68,11 @@ export interface TaskRuntimeContext {
    * 记进这次运行（只在原来没记模型时才写），流程图等地方就能显示真实的模型名。
    */
   reportModel?(model: string): void;
+  /**
+   * 报这一轮（或这一步）用掉的 token，格式随各家原样传进来（见 tokenUsage.ts 的 normalizeUsage），
+   * 同一次运行报多次会累加。流程图按运行 / 子任务显示用量。
+   */
+  reportUsage?(usage: unknown): void;
 }
 
 /** 一轮对话的输入：文本 + 可选的图片附件（本机绝对路径）。 */

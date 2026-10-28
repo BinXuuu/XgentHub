@@ -139,7 +139,10 @@ function clip(text: string, max: number): string {
 }
 
 /** 把 dsh 的 JSON 事件转成任务里的消息 / 终端输出。 */
-export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessage" | "terminal" | "log" | "setSessionKey">, agentName = "DeepSeek Harness") {
+export function createDshEventHandler(
+  ctx: Pick<TaskRuntimeContext, "agentMessage" | "terminal" | "log" | "setSessionKey" | "reportUsage">,
+  agentName = "DeepSeek Harness"
+) {
   let sawText = false;
   let error: string | null = null;
   let aclBlocked = false;
@@ -177,6 +180,7 @@ export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessag
           break;
         }
         case "status":
+          if (evt.phase === "step_end" && evt.usage) ctx.reportUsage?.(evt.usage);
           if (evt.phase === "turn_end" && evt.reason?.kind === "error") {
             error = friendlyError(evt.reason.error?.code, String(evt.reason.error?.message ?? "未知错误"), agentName);
           }
