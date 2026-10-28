@@ -197,68 +197,6 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
       </div>
 
       <div className="agent-config-content">
-        {hiddenAgents.length > 0 && (
-          <section className="config-section">
-            <div className="config-section-head">
-              <div>
-                <h3>恢复内置 Agent</h3>
-                <p>这些是你从左侧列表删掉的内置 Agent，配置都还在，点「恢复」就回到列表里。</p>
-              </div>
-            </div>
-            <div className="agent-template-grid">
-              {hiddenAgents.map((agent) => (
-                <button
-                  className="agent-template-card"
-                  key={agent.id}
-                  type="button"
-                  disabled={restoringId !== null}
-                  onClick={() => void restoreAgent(agent.id)}
-                >
-                  <strong>{restoringId === agent.id ? "恢复中..." : `恢复 ${agent.name}`}</strong>
-                  <span>{agent.description}</span>
-                </button>
-              ))}
-            </div>
-            {restoreError && <div className="login-error">{restoreError}</div>}
-          </section>
-        )}
-
-        <section className="config-section">
-          <div className="config-section-head">
-            <div>
-              <h3>添加登录账号</h3>
-              <p>
-                想同时用多个 Codex / Claude Code 账号，在这里加。每个账号有自己独立的登录、额度和会话记录，加好后在它的详情页登录。
-              </p>
-            </div>
-          </div>
-          <div className="agent-template-grid">
-            {ACCOUNT_KINDS.map((item) => (
-              <button
-                className={`agent-template-card ${accountKind === item.value ? "selected" : ""}`}
-                key={item.value}
-                type="button"
-                onClick={() => setAccountKind(item.value)}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.desc}</span>
-              </button>
-            ))}
-          </div>
-          <form className="account-create-row" onSubmit={submitAccount}>
-            <input
-              className="field"
-              placeholder="账号名，比如：工作号（留空自动起名）"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-            />
-            <button className="btn btn-primary" type="submit" disabled={addingAccount}>
-              {addingAccount ? "添加中..." : `添加 ${ACCOUNT_KINDS.find((item) => item.value === accountKind)?.label}，去登录`}
-            </button>
-          </form>
-          {accountError && <div className="login-error">{accountError}</div>}
-        </section>
-
         <section className="config-section">
           <div className="config-section-head">
             <div>
@@ -311,6 +249,68 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
             </div>
           )}
         </section>
+
+        <section className="config-section">
+          <div className="config-section-head">
+            <div>
+              <h3>添加登录账号</h3>
+              <p>
+                想同时用多个 Codex / Claude Code 账号，在这里加。每个账号有自己独立的登录、额度和会话记录，加好后在它的详情页登录。
+              </p>
+            </div>
+          </div>
+          <div className="agent-template-grid">
+            {ACCOUNT_KINDS.map((item) => (
+              <button
+                className={`agent-template-card ${accountKind === item.value ? "selected" : ""}`}
+                key={item.value}
+                type="button"
+                onClick={() => setAccountKind(item.value)}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.desc}</span>
+              </button>
+            ))}
+          </div>
+          <form className="account-create-row" onSubmit={submitAccount}>
+            <input
+              className="field"
+              placeholder="账号名，比如：工作号（留空自动起名）"
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+            />
+            <button className="btn btn-primary" type="submit" disabled={addingAccount}>
+              {addingAccount ? "添加中..." : `添加 ${ACCOUNT_KINDS.find((item) => item.value === accountKind)?.label}，去登录`}
+            </button>
+          </form>
+          {accountError && <div className="login-error">{accountError}</div>}
+        </section>
+
+        {hiddenAgents.length > 0 && (
+          <section className="config-section">
+            <div className="config-section-head">
+              <div>
+                <h3>恢复内置 Agent</h3>
+                <p>这些是你从左侧列表删掉的内置 Agent，配置都还在，点「恢复」就回到列表里。</p>
+              </div>
+            </div>
+            <div className="agent-template-grid">
+              {hiddenAgents.map((agent) => (
+                <button
+                  className="agent-template-card"
+                  key={agent.id}
+                  type="button"
+                  disabled={restoringId !== null}
+                  onClick={() => void restoreAgent(agent.id)}
+                >
+                  <strong>{restoringId === agent.id ? "恢复中..." : `恢复 ${agent.name}`}</strong>
+                  <span>{agent.description}</span>
+                </button>
+              ))}
+            </div>
+            {restoreError && <div className="login-error">{restoreError}</div>}
+          </section>
+        )}
 
         <section className="config-section">
           <div className="config-section-head">
