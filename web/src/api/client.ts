@@ -109,7 +109,7 @@ export const api = {
   createCustomAgent: (input: CreateCustomAgentInput) =>
     request<AgentDescriptor>("/agents/custom", { method: "POST", body: JSON.stringify(input) }),
   deleteAgent: (agentId: string) => request<{ ok: boolean; home?: string }>(`/agents/${agentPath(agentId)}`, { method: "DELETE" }),
-  createAgentAccount: (input: { kind: "codex" | "claude-code"; name?: string; copyConfig?: boolean }) =>
+  createAgentAccount: (input: { kind: "codex" | "claude-code" | "codebuddy" | "deepseek-harness" | "ark-cli"; name?: string; copyConfig?: boolean }) =>
     request<AgentDescriptor>("/agents/accounts", { method: "POST", body: JSON.stringify(input) }),
   setAgentAccountNote: (agentId: string, note: string) =>
     request<AgentDescriptor>(`/agents/${agentPath(agentId)}/account-note`, { method: "PUT", body: JSON.stringify({ note }) }),

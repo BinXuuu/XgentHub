@@ -135,7 +135,7 @@ export interface AgentAccountInfo {
   /** 能不能再添加别的账号（Antigravity 不能）。 */
   supportsMultiple: boolean;
   loggedIn: boolean;
-  authMode: "chatgpt" | "claudeai" | "google" | "apikey" | null;
+  authMode: "chatgpt" | "claudeai" | "google" | "apikey" | "workbuddy" | "deepseek" | "volcengine" | null;
   email: string | null;
   plan: string | null;
   apiKeyHint: string | null;

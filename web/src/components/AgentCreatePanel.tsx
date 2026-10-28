@@ -4,11 +4,14 @@ import { api } from "../api/client";
 
 type CustomTemplate = CreateCustomAgentInput["template"];
 
-type AccountKind = "codex" | "claude-code";
+type AccountKind = "codex" | "claude-code" | "codebuddy" | "deepseek-harness" | "ark-cli";
 
 const ACCOUNT_KINDS: { value: AccountKind; label: string; desc: string }[] = [
   { value: "codex", label: "Codex 账号", desc: "再登录一个 ChatGPT 账号或 OpenAI API Key" },
   { value: "claude-code", label: "Claude Code 账号", desc: "再登录一个 Claude 订阅账号，或用 API Key / 中转站" },
+  { value: "codebuddy", label: "WorkBuddy 账号", desc: "再登录一个 WorkBuddy 账号（CodeBuddy 命令行）" },
+  { value: "deepseek-harness", label: "DeepSeek 账号", desc: "再登录一个 DeepSeek 账号（DeepSeek Harness）" },
+  { value: "ark-cli", label: "火山方舟账号", desc: "再登录一个火山引擎账号（Ark CLI）" },
 ];
 
 const CUSTOM_TEMPLATES: { value: CustomTemplate; label: string; desc: string }[] = [
@@ -255,7 +258,7 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
             <div>
               <h3>添加登录账号</h3>
               <p>
-                想同时用多个 Codex / Claude Code 账号，在这里加。每个账号有自己独立的登录、额度和会话记录，加好后在它的详情页登录。
+                想同时用多个 Codex / Claude Code / WorkBuddy / DeepSeek / 火山方舟账号，在这里加。每个账号有自己独立的登录、额度和会话记录，加好后在它的详情页登录。
               </p>
             </div>
           </div>

@@ -7,7 +7,15 @@ import { cliAvailable, killProcessTree, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { ModelOption, PermissionMode } from "../types.ts";
+import type { AgentAccountInfo, ModelOption, PermissionMode } from "../types.ts";
+import { cliAccountEnv, readCliAccountInfo } from "../services/cliAccountService.ts";
+
+/** 另外添加的 DeepSeek 账号：一个独立的 DSH_HOME（登录在里面的 .credentials.yaml）。不传就是本机默认账号。 */
+export interface DshAccountOptions {
+  id: string;
+  name: string;
+  home: string;
+}
 import { ASK_TIMEOUT_MS } from "./askErrors.ts";
 
 // DeepSeek Harness（dsh，DeepSeek 官方开源 agent，npm 包 @deepseek-ai/dsh，桌面版 "DeepSeek Harness"）。
@@ -28,7 +36,7 @@ const MODELS: ModelOption[] = [
   { id: "deepseek-flash", label: "DeepSeek Flash" },
   { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
 ];
-const LOGIN_HINT = "DeepSeek Harness 还没登录 DeepSeek 账号：请打开 DeepSeek Harness 桌面版登录一次，再回来重试。";
+
 const API_KEY_HINT = "DeepSeek Harness 现在用 API Key 模式，但没找到 DEEPSEEK_API_KEY：在 .env 里配上，或把「账号方式」改回 account（用桌面版登录的账号）。";
 const ACL_HINT =
   "DeepSeek Harness 的沙箱在这个工作区跑不了命令（Windows 文件权限不够：工作区目录缺少「修改权限」这一项，报错 SetNamedSecurityInfoW failed）。" +
@@ -99,16 +107,16 @@ export function buildPatch(model: string): string {
   ].join("\n");
 }
 
-function writePatchFile(model: string): string {
+function writePatchFile(model: string, accountId: string | null): string {
   const dir = path.join(config.dataDir, "dsh");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, "xgent-headless-patch.yml");
+  const file = path.join(dir, `xgent-headless-patch${accountId ? `-${accountId.replace(/[^a-zA-Z0-9-]+/g, "_")}` : ""}.yml`);
   fs.writeFileSync(file, buildPatch(model), "utf8");
   return file;
 }
 
-function spawnDsh(launch: Launch, args: string[], cwd: string, permission: string): ChildProcess {
-  const env = { ...launch.env, DSH_PERMISSION_MODE: permission };
+function spawnDsh(launch: Launch, args: string[], cwd: string, permission: string, home: string | null): ChildProcess {
+  const env = { ...launch.env, ...cliAccountEnv("deepseek-harness", home), DSH_PERMISSION_MODE: permission };
   const full = [...launch.baseArgs, ...args];
   if (launch.viaShim) return spawnCli(launch.command, full, { cwd, env, preferCmdShim: true });
   return nodeSpawn(launch.command, full, { cwd, env, windowsHide: true });
@@ -118,8 +126,10 @@ function headlessArgs(patchFile: string, sessionId: string | null): string[] {
   return ["--profile", "headless", "--patch", patchFile, "--json", ...(sessionId ? ["--session-id", sessionId] : []), "-"];
 }
 
-function friendlyError(code: string | undefined, message: string): string {
-  if (code === "ACCOUNT_SIGN_IN_REQUIRED") return LOGIN_HINT;
+function friendlyError(code: string | undefined, message: string, agentName: string): string {
+  if (code === "ACCOUNT_SIGN_IN_REQUIRED") {
+    return `「${agentName}」还没登录 DeepSeek 账号：在左侧打开「${agentName}」，在「账号」里点「登录 DeepSeek 账号」，登录完再重试。`;
+  }
   if (code === "MISSING_CREDENTIAL") return API_KEY_HINT;
   return `DeepSeek Harness 出错：${message}`;
 }
@@ -129,7 +139,7 @@ function clip(text: string, max: number): string {
 }
 
 /** 把 dsh 的 JSON 事件转成任务里的消息 / 终端输出。 */
-export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessage" | "terminal" | "log" | "setSessionKey">) {
+export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessage" | "terminal" | "log" | "setSessionKey">, agentName = "DeepSeek Harness") {
   let sawText = false;
   let error: string | null = null;
   let aclBlocked = false;
@@ -168,7 +178,7 @@ export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessag
         }
         case "status":
           if (evt.phase === "turn_end" && evt.reason?.kind === "error") {
-            error = friendlyError(evt.reason.error?.code, String(evt.reason.error?.message ?? "未知错误"));
+            error = friendlyError(evt.reason.error?.code, String(evt.reason.error?.message ?? "未知错误"), agentName);
           }
           break;
         case "thinking":
@@ -189,7 +199,7 @@ export function createDshEventHandler(ctx: Pick<TaskRuntimeContext, "agentMessag
   };
 }
 
-async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null): Promise<void> {
+async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null, account: DshAccountOptions | null): Promise<void> {
   const launch = resolveDshLaunch();
   if (!launch) {
     ctx.agentMessage(
@@ -220,7 +230,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   }
   const prompt = buildWorkspacePrompt(ctx.workspacePath, text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths);
   const sessionId = resumeSessionId?.startsWith("session-") ? resumeSessionId : null;
-  const args = headlessArgs(writePatchFile(model), sessionId);
+  const args = headlessArgs(writePatchFile(model, account?.id ?? null), sessionId);
   ctx.reportModel?.(model);
   ctx.terminal(`$ dsh ${args.join(" ")} < stdin（DSH_PERMISSION_MODE=${permission}）\n`);
   ctx.setStatus("running");
@@ -228,7 +238,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   await new Promise<void>((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawnDsh(launch, args, ctx.workspacePath, permission);
+      child = spawnDsh(launch, args, ctx.workspacePath, permission, account?.home ?? null);
     } catch (err) {
       ctx.agentMessage(`无法启动 DeepSeek Harness：${(err as Error).message}`);
       ctx.setStatus("failed");
@@ -236,7 +246,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
       return;
     }
     child.stdin?.end(prompt);
-    const handler = createDshEventHandler(ctx);
+    const handler = createDshEventHandler(ctx, account ? `DeepSeek Harness（${account.name}）` : "DeepSeek Harness");
     let buffer = "";
     let stderr = "";
     let stoppedReason: string | null = null;
@@ -298,8 +308,24 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
 }
 
 export class DeepSeekHarnessAdapter implements AgentAdapter {
+  readonly id?: string;
   readonly kind = "deepseek-harness" as const;
-  readonly name = "DeepSeek Harness";
+  readonly name: string;
+  private readonly accountOptions: DshAccountOptions | null;
+
+  constructor(account?: DshAccountOptions) {
+    this.accountOptions = account ?? null;
+    this.id = account?.id;
+    this.name = account ? `DeepSeek Harness（${account.name}）` : "DeepSeek Harness";
+  }
+
+  account(): AgentAccountInfo {
+    return readCliAccountInfo("deepseek-harness", {
+      id: this.accountOptions?.id ?? "deepseek-harness",
+      name: this.accountOptions?.name ?? "默认账号",
+      home: this.accountOptions?.home ?? null,
+    });
+  }
   readonly description = "通过 DeepSeek Harness（dsh）的 headless 模式驱动任务，默认用桌面版登录的 DeepSeek 账号";
   readonly enforcesPlanMode = true as const;
 
@@ -326,11 +352,11 @@ export class DeepSeekHarnessAdapter implements AgentAdapter {
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input, null);
+    await dispatch(ctx, input, null, this.accountOptions);
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input, ctx.sessionKey);
+    await dispatch(ctx, input, ctx.sessionKey, this.accountOptions);
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
@@ -347,7 +373,7 @@ export class DeepSeekHarnessAdapter implements AgentAdapter {
     const launch = resolveDshLaunch();
     if (!launch) throw new Error("找不到 DeepSeek Harness，请先安装桌面版并登录 DeepSeek 账号");
     const model = options?.model || config.deepseekHarness.defaultModel || MODELS[0].id;
-    const child = spawnDsh(launch, headlessArgs(writePatchFile(model), null), process.cwd(), "read-only");
+    const child = spawnDsh(launch, headlessArgs(writePatchFile(model, this.accountOptions?.id ?? null), null), process.cwd(), "read-only", this.accountOptions?.home ?? null);
     child.stdin?.end(prompt);
     const messages: string[] = [];
     const handler = createDshEventHandler({
@@ -355,7 +381,7 @@ export class DeepSeekHarnessAdapter implements AgentAdapter {
       terminal: () => {},
       log: () => {},
       setSessionKey: () => {},
-    });
+    }, this.name);
     let buffer = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => (buffer += chunk.toString("utf8")));

@@ -7,7 +7,15 @@ import { killProcessTree, spawnCli } from "./winSpawn.ts";
 import { buildWorkspacePrompt } from "./workspacePrompt.ts";
 import type { AgentAdapter, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { ModelOption } from "../types.ts";
+import type { AgentAccountInfo, ModelOption } from "../types.ts";
+import { cliAccountEnv, readCliAccountInfo } from "../services/cliAccountService.ts";
+
+/** 另外添加的火山方舟账号：一个独立的用户目录（登录在里面的 .arkcli）。不传就是本机默认账号。 */
+export interface ArkAccountOptions {
+  id: string;
+  name: string;
+  home: string;
+}
 import { ASK_TIMEOUT_MS, cliAskError } from "./askErrors.ts";
 
 const runningArkCliProcesses = new Map<string, { child: ChildProcess; kill: (reason: string) => void }>();
@@ -69,11 +77,11 @@ function globalArgs(maskSecrets = false): string[] {
   return args;
 }
 
-function runArk(args: string[], cwd: string, timeoutMs: number): Promise<CliResult> {
+function runArk(args: string[], cwd: string, timeoutMs: number, env?: NodeJS.ProcessEnv): Promise<CliResult> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnCli(config.arkCli.bin, args, { cwd });
+      child = spawnCli(config.arkCli.bin, args, { cwd, env });
     } catch (err) {
       resolve({ code: null, stdout: "", stderr: "", error: err as Error });
       return;
@@ -182,9 +190,9 @@ function parseModelOptions(stdout: string, preferModelField = false): ModelOptio
   });
 }
 
-async function fetchModels(): Promise<ModelOption[]> {
+async function fetchModels(env?: NodeJS.ProcessEnv): Promise<ModelOption[]> {
   if (!executableExists(config.arkCli.bin)) return [];
-  const result = await runArk([...globalArgs(), "resources", "list", "--modality", "text", "--format", "json"], process.cwd(), 30_000);
+  const result = await runArk([...globalArgs(), "resources", "list", "--modality", "text", "--format", "json"], process.cwd(), 30_000, env);
   if (result.code !== 0 || result.error) return [];
   return parseModelOptions(result.stdout);
 }
@@ -281,7 +289,7 @@ function buildPrompt(ctx: TaskRuntimeContext, input: TurnInput, resumeResponseId
   return previous ? `以下是本任务之前的对话摘要，供你续接上下文：\n${previous}\n\n---\n\n${current}` : current;
 }
 
-async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
+async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, env?: NodeJS.ProcessEnv, accountName?: string): Promise<void> {
   if (!executableExists(config.arkCli.bin)) {
     ctx.agentMessage(
       `Ark CLI 尚未接通：未在本机 PATH 中找到 "${config.arkCli.bin}"。\n` +
@@ -322,7 +330,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
   await new Promise<void>((resolve) => {
     let child;
     try {
-      child = spawnCli(config.arkCli.bin, args, { cwd: ctx.workspacePath });
+      child = spawnCli(config.arkCli.bin, args, { cwd: ctx.workspacePath, env });
     } catch (err) {
       ctx.agentMessage(`无法启动 Ark CLI：${(err as Error).message}`);
       ctx.setStatus("failed");
@@ -392,7 +400,11 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
               "安装：npm install -g @volcengine/ark-cli@latest，然后运行 arkcli auth login。"
           );
       } else if (looksUnauthenticated(combined)) {
-        ctx.agentMessage("Ark CLI 尚未登录或未配置：请在终端运行 `arkcli auth login`，或在左侧 Ark CLI 配置里填 `ARK_CLI_API_KEY`。");
+        ctx.agentMessage(
+          accountName
+            ? `「${accountName}」还没登录火山方舟账号：在左侧打开「${accountName}」，在「账号」里点「登录 火山方舟 账号」，登录完再重试。`
+            : "Ark CLI 尚未登录或未配置：在左侧打开 Ark CLI，在「账号」里点「登录 火山方舟 账号」（或在终端运行 `arkcli auth login`），也可以在配置里填 `ARK_CLI_API_KEY`。"
+        );
       } else if (/requires an endpoint id|endpoint id|ep-\.\.\./i.test(combined)) {
         ctx.agentMessage(
           "Ark CLI 当前 profile 是 Platform 路径，`+chat` 需要使用 `ep-*` 推理接入点 ID。\n" +
@@ -419,8 +431,8 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput): Promise<void
   });
 }
 
-async function authStatusText(): Promise<string> {
-  const result = await runArk([...globalArgs(), "auth", "status", "--format", "json"], process.cwd(), 15_000);
+async function authStatusText(env?: NodeJS.ProcessEnv): Promise<string> {
+  const result = await runArk([...globalArgs(), "auth", "status", "--format", "json"], process.cwd(), 15_000, env);
   const text = `${result.stdout}\n${result.stderr}\n${result.error?.message ?? ""}`.trim();
   if (!text) return config.arkCli.apiKey ? "使用 AgentHub 中配置的 API Key" : "未返回登录状态";
   try {
@@ -432,10 +444,10 @@ async function authStatusText(): Promise<string> {
   }
 }
 
-async function usageSummary(): Promise<string | null> {
+async function usageSummary(env?: NodeJS.ProcessEnv): Promise<string | null> {
   if (!executableExists(config.arkCli.bin)) return "找不到 Ark CLI：请先安装 @volcengine/ark-cli，或在配置里设置 ARK_CLI_BIN。";
-  const auth = await authStatusText();
-  const plan = await runArk([...globalArgs(), "usage", "plan", "--format", "json"], process.cwd(), 30_000);
+  const auth = await authStatusText(env);
+  const plan = await runArk([...globalArgs(), "usage", "plan", "--format", "json"], process.cwd(), 30_000, env);
   const output = `${plan.stdout}\n${plan.stderr}\n${plan.error?.message ?? ""}`.trim();
   if (looksUnauthenticated(output) && !config.arkCli.apiKey) return `${auth}\n请先运行 arkcli auth login。`;
   if (plan.code !== 0 || !output) return `${auth}\n暂时查不到订阅用量。`;
@@ -443,8 +455,29 @@ async function usageSummary(): Promise<string | null> {
 }
 
 export class ArkCliAdapter implements AgentAdapter {
+  readonly id?: string;
   readonly kind = "ark-cli" as const;
-  readonly name = "Ark CLI";
+  readonly name: string;
+  private readonly accountOptions: ArkAccountOptions | null;
+
+  constructor(account?: ArkAccountOptions) {
+    this.accountOptions = account ?? null;
+    this.id = account?.id;
+    this.name = account ? `Ark CLI（${account.name}）` : "Ark CLI";
+  }
+
+  /** 另外添加的账号换一个用户目录（登录在里面的 .arkcli），默认账号不改环境。 */
+  private env(): NodeJS.ProcessEnv | undefined {
+    return this.accountOptions ? { ...process.env, ...cliAccountEnv("ark-cli", this.accountOptions.home) } : undefined;
+  }
+
+  account(): AgentAccountInfo {
+    return readCliAccountInfo("ark-cli", {
+      id: this.accountOptions?.id ?? "ark-cli",
+      name: this.accountOptions?.name ?? "默认账号",
+      home: this.accountOptions?.home ?? null,
+    });
+  }
   readonly description = "通过本机 arkcli +chat 调用火山方舟/豆包 CLI（headless）";
 
   isConfigured() {
@@ -464,20 +497,20 @@ export class ArkCliAdapter implements AgentAdapter {
   }
 
   async listModels(): Promise<ModelOption[]> {
-    return fetchModels();
+    return fetchModels(this.env());
   }
 
   async getUsageSummary(): Promise<string | null> {
-    return usageSummary();
+    return usageSummary(this.env());
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
     ctx.setSessionKey(`ark-cli-${runtimeKeyOf(ctx)}`);
-    await dispatch(ctx, input);
+    await dispatch(ctx, input, this.env(), this.accountOptions ? this.name : undefined);
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatch(ctx, input);
+    await dispatch(ctx, input, this.env(), this.accountOptions ? this.name : undefined);
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
@@ -495,7 +528,7 @@ export class ArkCliAdapter implements AgentAdapter {
     const args = [...globalArgs(), "+chat", prompt, "--stream", "--include-events", "--no-progress"];
     const model = options?.model || config.arkCli.defaultModel;
     if (model) args.push("--model", model);
-    const result = await runArk(args, process.cwd(), ASK_TIMEOUT_MS + 5_000);
+    const result = await runArk(args, process.cwd(), ASK_TIMEOUT_MS + 5_000, this.env());
     if (result.error) throw new Error(`启动 Ark CLI 失败：${result.error.message}`);
     if (result.code !== 0) throw cliAskError("Ark CLI", result.code, result.stderr || result.stdout);
     let streamed = "";

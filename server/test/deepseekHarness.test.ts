@@ -47,7 +47,7 @@ test("a normal run: session id kept, tool calls go to the terminal, text once (f
 test("errors become plain-language hints: not signed in, missing API key, sandbox without file-permission rights", () => {
   const signIn = collect();
   signIn.handler.handleLine('{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"Sign in to DeepSeek to use the account provider.","code":"ACCOUNT_SIGN_IN_REQUIRED"}}}');
-  assert.match(signIn.handler.error ?? "", /打开 DeepSeek Harness 桌面版登录/);
+  assert.match(signIn.handler.error ?? "", /「DeepSeek Harness」还没登录 DeepSeek 账号：在左侧打开.*点「登录 DeepSeek 账号」/);
 
   const apiKey = collect();
   apiKey.handler.handleLine('{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"no API key","code":"MISSING_CREDENTIAL"}}}');

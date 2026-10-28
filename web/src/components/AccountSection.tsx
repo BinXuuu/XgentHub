@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentDescriptor } from "../api/types";
 import { api } from "../api/client";
 import { copyText } from "../utils/clipboard";
-import { accountLabel, authModeLabel } from "../utils/agentAccount";
+import { accountLabel, authModeLabel, CLI_ACCOUNT_KINDS } from "../utils/agentAccount";
 import { alertDialog, confirmDialog, errorDialog, promptDialog } from "../utils/dialog";
 
 interface Props {
@@ -18,6 +18,18 @@ const KIND_LABEL: Partial<Record<AgentDescriptor["kind"], string>> = {
   codex: "Codex",
   "claude-code": "Claude Code",
   antigravity: "Antigravity",
+  codebuddy: "WorkBuddy",
+  "deepseek-harness": "DeepSeek",
+  "ark-cli": "火山方舟",
+};
+
+/** 默认账号跟谁共用一份登录。 */
+const SHARED_NOTE: Partial<Record<AgentDescriptor["kind"], string>> = {
+  codex: "和 Codex 桌面版、终端里的 codex 共用一份登录",
+  "claude-code": "和终端里的 claude 共用一份登录",
+  codebuddy: "和终端里的 codebuddy 共用一份登录",
+  "deepseek-harness": "和 DeepSeek Harness 桌面版共用一份登录",
+  "ark-cli": "和终端里的 arkcli 共用一份登录",
 };
 
 function signature(agent: AgentDescriptor): string {
@@ -76,12 +88,8 @@ export function AccountSection({ agent, onAgentsChanged, onAgentCreated, onLogin
     }
   }
 
-  const sharedNote =
-    kind === "codex"
-      ? "和 Codex 桌面版、终端里的 codex 共用一份登录"
-      : kind === "claude-code"
-        ? "和终端里的 claude 共用一份登录"
-        : "";
+  const sharedNote = SHARED_NOTE[kind] ?? "";
+  const cliAccount = CLI_ACCOUNT_KINDS.includes(kind);
 
   async function loginWithBrowser() {
     if (account.loggedIn && account.authMode !== "apikey" && kind !== "antigravity") {
@@ -182,16 +190,19 @@ export function AccountSection({ agent, onAgentsChanged, onAgentCreated, onLogin
   }
 
   async function addAccount() {
-    if (kind !== "codex" && kind !== "claude-code") return;
+    if (kind !== "codex" && kind !== "claude-code" && !cliAccount) return;
     const copied = kind === "codex" ? "config.toml：MCP、默认模型等" : "settings.json：权限、hooks 等";
     const name = await promptDialog(
-      `给新账号起个名字，只用来在 Xgent 里区分，留空会自动起名。添加后再在它的详情页登录。
+      cliAccount
+        ? `给新账号起个名字，只用来在 Xgent 里区分，留空会自动起名。添加后再在它的详情页登录。
+新账号有自己独立的登录目录，跟默认账号互不影响。`
+        : `给新账号起个名字，只用来在 Xgent 里区分，留空会自动起名。添加后再在它的详情页登录。
 新账号有自己独立的登录、额度和会话记录，会先复制默认账号的 ${kindLabel} 设置（${copied}），不复制登录。`,
       { title: `添加 ${kindLabel} 账号`, defaultValue: "", confirmText: "添加", singleLine: true, placeholder: "账号名，比如：工作号" }
     );
     if (name === null) return;
     await run("add", async () => {
-      const created = await api.createAgentAccount({ kind, name: name.trim() || undefined, copyConfig: true });
+      const created = await api.createAgentAccount({ kind: kind as "codex" | "claude-code" | "codebuddy" | "deepseek-harness" | "ark-cli", name: name.trim() || undefined, copyConfig: true });
       onAgentCreated(created);
     });
   }
@@ -289,17 +300,21 @@ export function AccountSection({ agent, onAgentsChanged, onAgentCreated, onLogin
                   ? "换个账号登录"
                   : kind === "codex"
                     ? "登录 ChatGPT 账号"
-                    : "登录 Claude 账号"}
+                    : cliAccount
+                      ? `登录 ${kindLabel} 账号`
+                      : "登录 Claude 账号"}
             </button>
-            <button className="btn btn-sm" onClick={() => void loginWithApiKey()} disabled={Boolean(busy)}>
-              {busy === "apikey" ? "保存中…" : kind === "codex" ? "用 API Key 登录" : "用 API Key / 中转站"}
-            </button>
+            {!cliAccount && (
+              <button className="btn btn-sm" onClick={() => void loginWithApiKey()} disabled={Boolean(busy)}>
+                {busy === "apikey" ? "保存中…" : kind === "codex" ? "用 API Key 登录" : "用 API Key / 中转站"}
+              </button>
+            )}
             {kind === "claude-code" && account.authMode === "apikey" && (
               <button className="btn btn-sm" onClick={() => void clearApiKey()} disabled={Boolean(busy)}>
                 {busy === "clear" ? "清除中…" : "清除 API Key"}
               </button>
             )}
-            {account.loggedIn && (kind === "codex" || account.authMode !== "apikey") && (
+            {account.loggedIn && !cliAccount && (kind === "codex" || account.authMode !== "apikey") && (
               <button className="btn btn-sm" onClick={() => void logout()} disabled={Boolean(busy)}>
                 {busy === "logout" ? "退出中…" : "退出登录"}
               </button>

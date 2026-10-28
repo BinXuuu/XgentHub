@@ -3,7 +3,19 @@ import { cliAvailable, spawnCli } from "./winSpawn.ts";
 import { dispatchStreamJson, runAskCommand, stopStreamJsonRun, type StreamJsonCli } from "./claudeCode.ts";
 import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from "./types.ts";
 import { runtimeKeyOf } from "./types.ts";
-import type { ModelOption } from "../types.ts";
+import type { AgentAccountInfo, ModelOption } from "../types.ts";
+import { cliAccountEnv, readCliAccountInfo } from "../services/cliAccountService.ts";
+
+/** 另外添加的 WorkBuddy 账号：一个独立的用户目录（登录、配置都在里面）。不传就是本机默认账号。 */
+export interface CliAccountOptions {
+  id: string;
+  name: string;
+  home: string;
+}
+
+function accountEnv(home: string | null): NodeJS.ProcessEnv | undefined {
+  return home ? { ...process.env, ...cliAccountEnv("codebuddy", home) } : undefined;
+}
 
 // CodeBuddy Code（腾讯，npm 包 @tencent-ai/codebuddy-code，命令 codebuddy）：跟 WorkBuddy 同一个账号，
 // 用的是账号自带的订阅 / 免费额度，不另外按量付费。它照着 Claude Code 做的——-p、--output-format stream-json、
@@ -17,8 +29,10 @@ import type { ModelOption } from "../types.ts";
 // WorkBuddy 桌面版里也带了一份 codebuddy，但那是精简版（交互界面被关掉，没法 /login），所以要单独装完整版登录一次。
 
 const LABEL = "CodeBuddy";
-const LOGIN_HINT =
-  "CodeBuddy 还没登录。请在终端运行 codebuddy，输入 /login，用你的 WorkBuddy 账号登录一次（登录信息保存在本机 ~/.codebuddy），再回来重试。";
+/** 指到这个 Agent 自己的「登录」按钮：另外添加的账号在终端里直接跑 codebuddy 登录的是默认账号，不能那样提示。 */
+function loginHint(agentName: string): string {
+  return `「${agentName}」还没登录 WorkBuddy 账号：在左侧打开「${agentName}」，在「账号」里点「登录 WorkBuddy 账号」，登录完再重试。`;
+}
 
 // `codebuddy --help` 里 --model 的说明列出了当前账号能用的模型 ID，取不到时用这几个通用档位兜底。
 const FALLBACK_MODELS: ModelOption[] = [
@@ -30,7 +44,8 @@ const FALLBACK_MODELS: ModelOption[] = [
 ];
 const TIER_LABELS: Record<string, string> = Object.fromEntries(FALLBACK_MODELS.map((m) => [m.id, m.label]));
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
-let modelCache: { at: number; models: ModelOption[] } | null = null;
+// 能用的模型跟账号有关，按账号分开缓存。
+const modelCache = new Map<string, { at: number; models: ModelOption[] }>();
 
 export function parseHelpModels(helpText: string): ModelOption[] {
   const match = helpText.match(/--model <model>[\s\S]*?Currently supported:\s*\(([^)]*)\)/);
@@ -42,11 +57,11 @@ export function parseHelpModels(helpText: string): ModelOption[] {
     .map((id) => ({ id, label: TIER_LABELS[id] ?? id }));
 }
 
-function runHelp(): Promise<string> {
+function runHelp(env: NodeJS.ProcessEnv | undefined): Promise<string> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnCli(config.codebuddy.bin, ["--help"], { preferCmdShim: true });
+      child = spawnCli(config.codebuddy.bin, ["--help"], { preferCmdShim: true, env });
     } catch {
       resolve("");
       return;
@@ -63,16 +78,17 @@ function runHelp(): Promise<string> {
   });
 }
 
-function cli(): StreamJsonCli {
+function cli(env: NodeJS.ProcessEnv | undefined, agentName: string): StreamJsonCli {
   return {
     label: LABEL,
+    env,
     bin: config.codebuddy.bin,
     baseArgs: config.codebuddy.args,
     permissionPromptFlag: false,
     permissionAnswerStyle: "codebuddy",
     preferCmdShim: true,
     notLoggedInPattern: /Authentication required|use \/login command/i,
-    loginHint: LOGIN_HINT,
+    loginHint: loginHint(agentName),
     defaultModel: config.codebuddy.defaultModel,
     missingBinaryHint:
       `CodeBuddy 还没装：本机找不到 "${config.codebuddy.bin}"。\n` +
@@ -81,8 +97,28 @@ function cli(): StreamJsonCli {
 }
 
 export class CodeBuddyAdapter implements AgentAdapter {
+  readonly id?: string;
   readonly kind = "codebuddy" as const;
-  readonly name = "WorkBuddy（CodeBuddy）";
+  readonly name: string;
+  private readonly accountOptions: CliAccountOptions | null;
+
+  constructor(account?: CliAccountOptions) {
+    this.accountOptions = account ?? null;
+    this.id = account?.id;
+    this.name = account ? `WorkBuddy（${account.name}）` : "WorkBuddy（CodeBuddy）";
+  }
+
+  private env(): NodeJS.ProcessEnv | undefined {
+    return accountEnv(this.accountOptions?.home ?? null);
+  }
+
+  account(): AgentAccountInfo {
+    return readCliAccountInfo("codebuddy", {
+      id: this.accountOptions?.id ?? "codebuddy",
+      name: this.accountOptions?.name ?? "默认账号",
+      home: this.accountOptions?.home ?? null,
+    });
+  }
   readonly description = "通过本机 codebuddy CLI 驱动任务，用 WorkBuddy 账号自带的额度";
   readonly enforcesPlanMode = true as const;
   readonly supportsMcp = true as const;
@@ -104,24 +140,26 @@ export class CodeBuddyAdapter implements AgentAdapter {
   }
 
   async listModels(): Promise<ModelOption[]> {
-    if (modelCache && Date.now() - modelCache.at < MODEL_CACHE_TTL_MS) return modelCache.models;
-    const parsed = parseHelpModels(await runHelp());
+    const key = this.accountOptions?.id ?? "default";
+    const cached = modelCache.get(key);
+    if (cached && Date.now() - cached.at < MODEL_CACHE_TTL_MS) return cached.models;
+    const parsed = parseHelpModels(await runHelp(this.env()));
     const models = parsed.length ? parsed : FALLBACK_MODELS;
-    if (parsed.length) modelCache = { at: Date.now(), models };
+    if (parsed.length) modelCache.set(key, { at: Date.now(), models });
     return models;
   }
 
   async run(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
     ctx.setSessionKey(`codebuddy-${runtimeKeyOf(ctx)}`);
-    await dispatchStreamJson(ctx, input, null, cli());
+    await dispatchStreamJson(ctx, input, null, cli(this.env(), this.name));
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
-    await dispatchStreamJson(ctx, input, ctx.sessionKey, cli());
+    await dispatchStreamJson(ctx, input, ctx.sessionKey, cli(this.env(), this.name));
   }
 
   async ask(prompt: string, options?: { model?: string | null; mcpServers?: McpServerSpec[] }): Promise<string | null> {
-    return runAskCommand(prompt, options?.model || config.codebuddy.defaultModel || null, options?.mcpServers, cli());
+    return runAskCommand(prompt, options?.model || config.codebuddy.defaultModel || null, options?.mcpServers, cli(this.env(), this.name));
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {

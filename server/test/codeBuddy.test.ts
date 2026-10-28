@@ -74,9 +74,9 @@ test("not logged in: the task fails with how to log in instead of the raw Englis
     const task = taskManager.createTask({ agentId: "codebuddy", workspaceId: workspace.id, title: "建目录", prompt: "建一个 out-dir", permissionMode: "full", actor: "test" });
     await waitStatus(task.id, ["failed"]);
     const texts = taskManager.listMessages(task.id).map((message) => message.content);
-    assert.ok(texts.some((text) => /终端运行 codebuddy，输入 \/login，用你的 WorkBuddy 账号登录/.test(text)));
+    assert.ok(texts.some((text) => /「WorkBuddy（CodeBuddy）」还没登录 WorkBuddy 账号：在左侧打开.*点「登录 WorkBuddy 账号」/.test(text)));
     assert.equal(texts.some((text) => text.includes("Authentication required")), false);
-    await assert.rejects(new CodeBuddyAdapter().ask("hi"), /WorkBuddy 账号登录/);
+    await assert.rejects(new CodeBuddyAdapter().ask("hi"), /点「登录 WorkBuddy 账号」/);
   } finally {
     delete process.env.FAKE_CLI_NOT_LOGGED_IN;
   }

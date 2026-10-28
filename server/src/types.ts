@@ -231,7 +231,7 @@ export interface AgentDescriptor {
  * 登录方式：chatgpt = Codex 的 ChatGPT 账号；claudeai = Claude 订阅账号；google = Antigravity 的 Google 账号；
  * apikey = API Key（填了 baseUrl 就是走中转站）。
  */
-export type AgentAuthMode = "chatgpt" | "claudeai" | "google" | "apikey";
+export type AgentAuthMode = "chatgpt" | "claudeai" | "google" | "apikey" | "workbuddy" | "deepseek" | "volcengine";
 
 export interface AgentAccountInfo {
   /** 对应的 agentId（默认账号就是内置 Agent 的 id，比如 "codex"）。 */

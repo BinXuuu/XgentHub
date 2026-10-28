@@ -17,6 +17,7 @@ import type { AgentDescriptor } from "../types.ts";
 import { listCustomAgents } from "../services/customAgentService.ts";
 import { getCodexAccount, listCodexAccounts } from "../services/codexAccountService.ts";
 import { getClaudeAccount, listClaudeAccounts } from "../services/claudeAccountService.ts";
+import { getCliAccount, listCliAccounts, type CliAccountRecord } from "../services/cliAccountService.ts";
 import { getRole, listRoles, roleIdFromAgentId } from "../services/roleService.ts";
 import { RoleAdapter } from "./role.ts";
 import { getAccountNote } from "../services/accountNoteService.ts";
@@ -73,6 +74,13 @@ function accountAdapter(account: AccountRecord, create: (account: AccountRecord)
 
 const newCodexAccount = (account: AccountRecord) => new CodexAdapter(account);
 const newClaudeAccount = (account: AccountRecord) => new ClaudeCodeAdapter(account);
+// WorkBuddy / DeepSeek Harness / Ark CLI 的账号：每个账号一个独立目录（见 cliAccountService）。
+const newCliAccount = (account: AccountRecord) => {
+  const kind = (account as CliAccountRecord).kind;
+  if (kind === "codebuddy") return new CodeBuddyAdapter(account);
+  if (kind === "deepseek-harness") return new DeepSeekHarnessAdapter(account);
+  return new ArkCliAdapter(account);
+};
 
 /** 内置 + 账号 + 自定义 Agent，不含角色——角色的底座只能是它们，角色不能套角色。 */
 function getBaseAdapter(agentId: string): AgentAdapter | undefined {
@@ -82,6 +90,8 @@ function getBaseAdapter(agentId: string): AgentAdapter | undefined {
   if (codexAccount) return accountAdapter(codexAccount, newCodexAccount);
   const claudeAccount = getClaudeAccount(agentId);
   if (claudeAccount) return accountAdapter(claudeAccount, newClaudeAccount);
+  const cliAccount = getCliAccount(agentId);
+  if (cliAccount) return accountAdapter(cliAccount, newCliAccount);
   const custom = listCustomAgents().find((agent) => agent.id === agentId);
   return custom ? createCustomAdapter(custom) : undefined;
 }
@@ -100,6 +110,9 @@ export function listBaseAdapters(): AgentAdapter[] {
   const extra: Partial<Record<string, AgentAdapter[]>> = {
     codex: listCodexAccounts().map((account) => accountAdapter(account, newCodexAccount)),
     "claude-code": listClaudeAccounts().map((account) => accountAdapter(account, newClaudeAccount)),
+    codebuddy: listCliAccounts("codebuddy").map((account) => accountAdapter(account, newCliAccount)),
+    "deepseek-harness": listCliAccounts("deepseek-harness").map((account) => accountAdapter(account, newCliAccount)),
+    "ark-cli": listCliAccounts("ark-cli").map((account) => accountAdapter(account, newCliAccount)),
   };
   return [...adapters.flatMap((a) => [a, ...(a.id ? [] : extra[a.kind] ?? [])]), ...listCustomAgents().map(createCustomAdapter)];
 }

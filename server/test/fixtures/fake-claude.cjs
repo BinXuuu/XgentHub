@@ -9,7 +9,7 @@ const args = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_ARGS_FILE) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS_FILE, JSON.stringify(args) + "\n");
 // 账号测试用：记下这次启动带的账号目录和 Key 相关环境变量。
 if (process.env.FAKE_CLAUDE_ENV_FILE) {
-  const pick = ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
+  const pick = process.env.FAKE_CLI_ENV_KEYS ? process.env.FAKE_CLI_ENV_KEYS.split(",") : ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
   fs.appendFileSync(process.env.FAKE_CLAUDE_ENV_FILE, JSON.stringify(Object.fromEntries(pick.map((key) => [key, process.env[key] ?? null]))) + "\n");
 }
 // CodeBuddy 不带 --permission-prompt-tool，只要是 stream-json 输入就会在 stdout 发权限询问（FAKE_CLI_ASK_ON_STREAM_INPUT=1 模拟它）。
