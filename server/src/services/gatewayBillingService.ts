@@ -76,15 +76,28 @@ export interface GatewayCloudAccountStatus {
   notes: string[];
 }
 
+export interface GatewayLiveBalance {
+  ok: boolean;
+  unlimited: boolean;
+  totalUsd: number | null;
+  usedUsd: number | null;
+  remainUsd: number | null;
+  cnyPerUsd: number | null;
+  error: string | null;
+  fetchedAt: string;
+}
+
 export interface GatewayOverview {
   provider: "tokenezgo";
   name: string;
   baseUrl: string;
   billingUrl: string;
   apiKeyConfigured: boolean;
-  balanceMode: "external";
+  balanceMode: "live" | "external";
   balanceLabel: string;
+  balanceDetail: string | null;
   balanceUrl: string;
+  liveBalance: GatewayLiveBalance | null;
   settings: GatewayBillingSettings;
   month: GatewayUsageSummary;
   recentRecords: GatewayUsageRecord[];
@@ -350,7 +363,88 @@ export function recordGatewayUsage(input: {
   return record;
 }
 
-export function getGatewayOverview(limit = 10): GatewayOverview {
+// new-api 给 API Key 用的标准额度接口：subscription 的 hard_limit_usd 是总额度（剩余 + 已用），
+// usage 的 total_usage 是已用金额（单位美分）。无限额度的 Key，hard_limit_usd 固定返回 100000000。
+const UNLIMITED_USD = 100_000_000;
+const LIVE_BALANCE_TTL_MS = 60_000;
+let liveBalanceCache: { at: number; value: GatewayLiveBalance } | null = null;
+
+function gatewayApiBase(): string {
+  return config.tokenezgo.baseUrl.replace(/\/+$/, "");
+}
+
+function gatewayOrigin(): string {
+  return gatewayApiBase().replace(/\/v1$/i, "");
+}
+
+async function getJson(url: string, auth: boolean): Promise<any> {
+  const res = await fetch(url, {
+    headers: auth ? { authorization: `Bearer ${config.tokenezgo.apiKey}` } : {},
+    signal: AbortSignal.timeout(10_000),
+  });
+  const text = await res.text();
+  let body: any = null;
+  try { body = JSON.parse(text); } catch { /* 下面统一报错 */ }
+  if (!res.ok) throw new Error(body?.error?.message || body?.message || `HTTP ${res.status}`);
+  if (!body) throw new Error("返回的不是 JSON");
+  return body;
+}
+
+export async function getGatewayLiveBalance(force = false): Promise<GatewayLiveBalance | null> {
+  if (!config.tokenezgo.apiKey) return null;
+  if (!force && liveBalanceCache && Date.now() - liveBalanceCache.at < LIVE_BALANCE_TTL_MS) return liveBalanceCache.value;
+  const base = gatewayApiBase();
+  let value: GatewayLiveBalance;
+  try {
+    const [subscription, usage, status] = await Promise.all([
+      getJson(`${base}/dashboard/billing/subscription`, true),
+      getJson(`${base}/dashboard/billing/usage`, true),
+      getJson(`${gatewayOrigin()}/api/status`, false).catch(() => null),
+    ]);
+    const total = Number(subscription?.hard_limit_usd);
+    const usedCents = Number(usage?.total_usage);
+    if (!Number.isFinite(total)) throw new Error("额度接口没有返回 hard_limit_usd");
+    const unlimited = total >= UNLIMITED_USD;
+    const usedUsd = Number.isFinite(usedCents) ? roundMoney(usedCents / 100) : null;
+    const rate = Number(status?.data?.price) || Number(status?.data?.usd_exchange_rate) || 0;
+    value = {
+      ok: true,
+      unlimited,
+      totalUsd: unlimited ? null : roundMoney(total),
+      usedUsd,
+      remainUsd: unlimited || usedUsd === null ? null : roundMoney(Math.max(0, total - usedUsd)),
+      cnyPerUsd: rate > 0 ? rate : null,
+      error: null,
+      fetchedAt: now(),
+    };
+  } catch (err) {
+    value = { ok: false, unlimited: false, totalUsd: null, usedUsd: null, remainUsd: null, cnyPerUsd: null, error: err instanceof Error ? err.message : String(err), fetchedAt: now() };
+  }
+  liveBalanceCache = { at: Date.now(), value };
+  return value;
+}
+
+function usdText(usd: number, rate: number | null): string {
+  const main = `$${usd.toFixed(usd >= 100 ? 2 : 4).replace(/\.?0+$/, "") || "0"}`;
+  return rate ? `${main}（约 ¥${(usd * rate).toFixed(2)}）` : main;
+}
+
+function describeLiveBalance(live: GatewayLiveBalance | null): { mode: "live" | "external"; label: string; detail: string | null } {
+  if (!live) return { mode: "external", label: "填好 API Key 后显示", detail: null };
+  if (!live.ok) return { mode: "external", label: "查询失败，请到 TokenEZGO 查看", detail: live.error };
+  const used = live.usedUsd === null ? null : `已用 ${usdText(live.usedUsd, live.cnyPerUsd)}`;
+  if (live.unlimited) return { mode: "live", label: "无限额度", detail: ["这个 Key 在 TokenEZGO 设置为无限额度", used].filter(Boolean).join("，") };
+  const remain = live.remainUsd ?? 0;
+  return {
+    mode: "live",
+    label: `剩余 ${usdText(remain, live.cnyPerUsd)}`,
+    detail: [`总额度 ${usdText(live.totalUsd ?? 0, null)}`, used].filter(Boolean).join("，"),
+  };
+}
+
+export async function getGatewayOverview(limit = 10, forceBalance = false): Promise<GatewayOverview> {
+  const live = await getGatewayLiveBalance(forceBalance);
+  const balance = describeLiveBalance(live);
   const settings = getGatewayBillingSettings();
   const records = listGatewayUsageRecords();
   const month = summarizeGatewayUsage(records);
@@ -359,7 +453,9 @@ export function getGatewayOverview(limit = 10): GatewayOverview {
     settings.outputPriceCnyPer1K > 0 ||
     settings.modelPriceRules.some((rule) => rule.enabled && (rule.inputPriceCnyPer1K > 0 || rule.outputPriceCnyPer1K > 0));
   const notices = [
-    "余额和真实账单仍以 TokenEZGO 页面为准，本地账本只做提醒和产品骨架。",
+    balance.mode === "live"
+      ? "余额来自 TokenEZGO 的额度接口（按这个 API Key 统计）；下方本地账本只做估算和提醒。"
+      : "余额和真实账单以 TokenEZGO 页面为准，本地账本只做估算和提醒。",
     priceConfigured ? "已配置本地估算单价，可显示预计花费和预算提醒。" : "尚未配置本地估算单价；会记录 token 粗估，但金额显示为 0。",
   ];
   if (settings.monthlyBudgetCny > 0 && month.estimatedCostCny >= settings.monthlyBudgetCny) {
@@ -372,9 +468,11 @@ export function getGatewayOverview(limit = 10): GatewayOverview {
     baseUrl: config.tokenezgo.baseUrl,
     billingUrl: "https://tokenezgo.com",
     apiKeyConfigured: Boolean(config.tokenezgo.apiKey),
-    balanceMode: "external",
-    balanceLabel: "余额和充值在 TokenEZGO 查看",
+    balanceMode: balance.mode,
+    balanceLabel: balance.label,
+    balanceDetail: balance.detail,
     balanceUrl: "https://tokenezgo.com",
+    liveBalance: live,
     settings,
     month,
     recentRecords: records.slice().reverse().slice(0, limit),
@@ -405,16 +503,17 @@ export function getGatewayOverview(limit = 10): GatewayOverview {
   };
 }
 
-export function getGatewayCloudAccountStatus(): GatewayCloudAccountStatus {
+export async function getGatewayCloudAccountStatus(): Promise<GatewayCloudAccountStatus> {
+  const balance = describeLiveBalance(await getGatewayLiveBalance());
   return {
     provider: "tokenezgo",
     status: "external_only",
     signedIn: false,
     loginSupported: false,
     accountLabel: "暂未接入 Xgent Hub 云账号",
-    balanceLabel: "请到 TokenEZGO 页面查看余额",
+    balanceLabel: balance.mode === "live" ? `当前 Key：${balance.label}` : "请到 TokenEZGO 页面查看余额",
     billingUrl: "https://tokenezgo.com",
-    reservedCapabilities: ["云端登录", "真实余额", "充值订单", "Token 包消耗", "设备绑定", "异地访问授权"],
+    reservedCapabilities: ["云端登录", "账户总余额", "充值订单", "Token 包消耗", "设备绑定", "异地访问授权"],
     notes: [
       "当前版本只做接口占位和产品边界预留。",
       "本地开源客户端不会保存平台主 API Key；客户自己的 API Key 仍通过 TOKENEZGO_API_KEY 配置。",
@@ -422,10 +521,10 @@ export function getGatewayCloudAccountStatus(): GatewayCloudAccountStatus {
   };
 }
 
-export function getGatewayUsageSummaryText(): string | null {
-  const overview = getGatewayOverview(1);
+export async function getGatewayUsageSummaryText(): Promise<string | null> {
+  const overview = await getGatewayOverview(1, true);
   const lines = [
-    `余额：${overview.balanceLabel}`,
+    `余额：${overview.balanceLabel}${overview.balanceDetail ? `（${overview.balanceDetail}）` : ""}`,
     `本月本地估算：¥${overview.month.estimatedCostCny} / ${overview.month.totalTokens} tokens / ${overview.month.recordCount} 次`,
   ];
   if (overview.settings.monthlyBudgetCny > 0) lines.push(`月度提醒预算：¥${overview.settings.monthlyBudgetCny}`);

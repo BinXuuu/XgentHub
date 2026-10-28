@@ -376,7 +376,7 @@ export const api = {
   uploadAttachment: (filename: string, dataBase64: string) =>
     request<{ path: string }>("/attachments", { method: "POST", body: JSON.stringify({ filename, dataBase64 }) }),
 
-  getOfficialGatewayOverview: () => request<GatewayOverview>("/gateway/official/overview"),
+  getOfficialGatewayOverview: (refresh = false) => request<GatewayOverview>(`/gateway/official/overview${refresh ? "?refresh=1" : ""}`),
   updateOfficialGatewaySettings: (settings: Partial<GatewayBillingSettings>) =>
     request<GatewayOverview>("/gateway/official/settings", { method: "PUT", body: JSON.stringify({ settings }) }),
   getOfficialGatewayTaskUsage: (taskId: string) => request<GatewayTaskUsage>(`/gateway/official/tasks/${taskId}/usage`),

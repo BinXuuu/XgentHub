@@ -13,7 +13,9 @@ interface UpdateGatewaySettingsBody {
 }
 
 export function registerGatewayRoutes(app: FastifyInstance) {
-  app.get("/api/gateway/official/overview", { preHandler: requireAuth }, async () => getGatewayOverview());
+  app.get<{ Querystring: { refresh?: string } }>("/api/gateway/official/overview", { preHandler: requireAuth }, async (req) =>
+    getGatewayOverview(10, req.query?.refresh === "1")
+  );
 
   app.get<{ Params: { taskId: string } }>("/api/gateway/official/tasks/:taskId/usage", { preHandler: requireAuth }, async (req) =>
     getGatewayTaskUsage(req.params.taskId)

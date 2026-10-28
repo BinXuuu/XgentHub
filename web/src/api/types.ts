@@ -487,15 +487,28 @@ export interface GatewayCloudAccountStatus {
   notes: string[];
 }
 
+export interface GatewayLiveBalance {
+  ok: boolean;
+  unlimited: boolean;
+  totalUsd: number | null;
+  usedUsd: number | null;
+  remainUsd: number | null;
+  cnyPerUsd: number | null;
+  error: string | null;
+  fetchedAt: string;
+}
+
 export interface GatewayOverview {
   provider: "tokenezgo";
   name: string;
   baseUrl: string;
   billingUrl: string;
   apiKeyConfigured: boolean;
-  balanceMode: "external";
+  balanceMode: "live" | "external";
   balanceLabel: string;
+  balanceDetail: string | null;
   balanceUrl: string;
+  liveBalance: GatewayLiveBalance | null;
   settings: GatewayBillingSettings;
   month: GatewayUsageSummary;
   recentRecords: GatewayUsageRecord[];

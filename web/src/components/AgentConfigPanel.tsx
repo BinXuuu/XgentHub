@@ -72,10 +72,10 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
     setModelPriceRules(overview.settings.modelPriceRules ?? []);
   }
 
-  async function refreshGatewayOverview() {
+  async function refreshGatewayOverview(refreshBalance = false) {
     if (agent.id !== "tokenezgo") return;
     try {
-      applyGatewayOverview(await api.getOfficialGatewayOverview());
+      applyGatewayOverview(await api.getOfficialGatewayOverview(refreshBalance));
       setCloudAccount(await api.getOfficialGatewayCloudAccount());
     } catch {
       setGatewayOverview(null);
@@ -374,8 +374,8 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                 <button className="btn btn-sm" type="button" onClick={() => void copyText("https://tokenezgo.com/v1")}>
                   复制 Base URL
                 </button>
-                <button className="btn btn-sm" type="button" onClick={refreshGatewayOverview}>
-                  刷新账本
+                <button className="btn btn-sm" type="button" onClick={() => void refreshGatewayOverview(true)}>
+                  刷新余额
                 </button>
               </div>
             </div>
@@ -389,6 +389,7 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                   <div>
                     <span>余额</span>
                     <strong>{gatewayOverview.balanceLabel}</strong>
+                    {gatewayOverview.balanceDetail && <small>{gatewayOverview.balanceDetail}</small>}
                   </div>
                   <div>
                     <span>本月本地估算</span>
