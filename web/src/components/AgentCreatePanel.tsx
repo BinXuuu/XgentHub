@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentDescriptor, CreateCustomAgentInput, MachineConfigDiscovery, MachineConfigDiscoveryItem } from "../api/types";
 import { api } from "../api/client";
 
@@ -96,6 +96,9 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
   const [accountName, setAccountName] = useState("");
   const [addingAccount, setAddingAccount] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [hiddenAgents, setHiddenAgents] = useState<AgentDescriptor[]>([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const selectedTemplate = CUSTOM_TEMPLATES.find((item) => item.value === template);
   const isApi = template === "api";
 
@@ -107,6 +110,22 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
 
   function setField<K extends keyof CreateCustomAgentInput>(key: K, value: CreateCustomAgentInput[K]) {
     setValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  useEffect(() => {
+    api.listHiddenAgents().then(setHiddenAgents).catch(() => setHiddenAgents([]));
+  }, []);
+
+  async function restoreAgent(agentId: string) {
+    setRestoringId(agentId);
+    setRestoreError(null);
+    try {
+      onCreated(await api.restoreAgent(agentId));
+    } catch (err) {
+      setRestoreError((err as Error).message);
+    } finally {
+      setRestoringId(null);
+    }
   }
 
   async function scanLocalAgents() {
@@ -178,6 +197,32 @@ export function AgentCreatePanel({ onBack, onCreated }: Props) {
       </div>
 
       <div className="agent-config-content">
+        {hiddenAgents.length > 0 && (
+          <section className="config-section">
+            <div className="config-section-head">
+              <div>
+                <h3>恢复内置 Agent</h3>
+                <p>这些是你从左侧列表删掉的内置 Agent，配置都还在，点「恢复」就回到列表里。</p>
+              </div>
+            </div>
+            <div className="agent-template-grid">
+              {hiddenAgents.map((agent) => (
+                <button
+                  className="agent-template-card"
+                  key={agent.id}
+                  type="button"
+                  disabled={restoringId !== null}
+                  onClick={() => void restoreAgent(agent.id)}
+                >
+                  <strong>{restoringId === agent.id ? "恢复中..." : `恢复 ${agent.name}`}</strong>
+                  <span>{agent.description}</span>
+                </button>
+              ))}
+            </div>
+            {restoreError && <div className="login-error">{restoreError}</div>}
+          </section>
+        )}
+
         <section className="config-section">
           <div className="config-section-head">
             <div>

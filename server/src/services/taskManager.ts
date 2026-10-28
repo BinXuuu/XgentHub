@@ -18,7 +18,7 @@ import { orchestrator } from "../orchestrator/orchestratorService.ts";
 import { getWorkspace, getWorkspacePrompt, listWorkspaces as listWorkspaceRecords } from "./workspaceService.ts";
 import * as queueDb from "./queueService.ts";
 import { deleteAttachmentFile } from "./attachmentService.ts";
-import { isAgentHidden } from "./agentVisibilityService.ts";
+import { isAgentHidden, unhideAgent } from "./agentVisibilityService.ts";
 import { emitTaskEvent, emitTaskStatusChanged, recordDomainEvent } from "./eventService.ts";
 import {
   deleteAlwaysAllowRule,
@@ -261,6 +261,23 @@ class TaskManager {
     }).map(toDescriptor);
     for (const descriptor of descriptors) syncAgentDescriptor(descriptor);
     return descriptors;
+  }
+
+  /** 被删掉（隐藏）的内置 Agent，给「新增 Agent」页显示恢复按钮。 */
+  listHiddenAgents(): AgentDescriptor[] {
+    return listAdapters()
+      .filter((adapter) => !adapter.id && !isProtectedAgent(adapter.kind) && isAgentHidden(adapter.kind))
+      .map(toDescriptor);
+  }
+
+  restoreAgent(agentId: string): AgentDescriptor {
+    const adapter = this.listHiddenAgents().find((agent) => agent.id === agentId);
+    if (!adapter) throw new Error("这个内置 Agent 没有被删除，不需要恢复");
+    unhideAgent(agentId);
+    this.invalidateOptions(agentId);
+    const restored = this.listAgents().find((agent) => agent.id === agentId);
+    if (!restored) throw new Error("恢复失败");
+    return restored;
   }
 
   private async cachedOptions(

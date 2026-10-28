@@ -104,6 +104,8 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/logout", { method: "POST" }),
 
   listAgents: () => request<AgentDescriptor[]>("/agents"),
+  listHiddenAgents: () => request<AgentDescriptor[]>("/agents/hidden"),
+  restoreAgent: (agentId: string) => request<AgentDescriptor>(`/agents/${agentPath(agentId)}/restore`, { method: "POST" }),
   createCustomAgent: (input: CreateCustomAgentInput) =>
     request<AgentDescriptor>("/agents/custom", { method: "POST", body: JSON.stringify(input) }),
   deleteAgent: (agentId: string) => request<{ ok: boolean; home?: string }>(`/agents/${agentPath(agentId)}`, { method: "DELETE" }),

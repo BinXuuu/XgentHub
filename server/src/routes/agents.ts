@@ -22,6 +22,16 @@ export function registerAgentRoutes(app: FastifyInstance) {
     return taskManager.listAgents();
   });
 
+  app.get("/api/agents/hidden", { preHandler: requireAuth }, async () => taskManager.listHiddenAgents());
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/restore", { preHandler: requireAuth }, async (req, reply) => {
+    try {
+      return taskManager.restoreAgent(req.params.id);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
   app.post<{ Body: CreateCustomAgentInput }>("/api/agents/custom", { preHandler: requireAuth }, async (req) => {
     const created = createCustomAgent(req.body ?? { template: "api" });
     return toDescriptor(createCustomAdapter(created));

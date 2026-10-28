@@ -21,4 +21,9 @@ export function hideAgent(agentId: string): void {
   writeHiddenIds([...readHiddenIds(), agentId]);
 }
 
+/** 删掉的内置 Agent 只是藏起来了，「新增 Agent」页可以把它找回来。 */
+export function unhideAgent(agentId: string): void {
+  writeHiddenIds(readHiddenIds().filter((id) => id !== agentId));
+}
+
 export { storePath as hiddenAgentStorePath };
