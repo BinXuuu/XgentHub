@@ -275,6 +275,8 @@ export const api = {
     autoPlanSubtasks?: boolean;
     multiAgentPlan?: MultiAgentPlan;
     autoAdvancePlan?: boolean;
+    /** AI 智能拆分：第一条需求到了再拆，只分给这些 Agent / 角色。 */
+    splitAgentPool?: string[];
     planMode?: boolean;
   }) =>
     request<Task>("/tasks", { method: "POST", body: JSON.stringify(input) }),

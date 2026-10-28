@@ -637,6 +637,8 @@ export interface Task {
   budgetLimitCny: number | null;
   /** 创建任务时确认了智能多 Agent 规划、且勾选了自动依次执行：子任务跑完一个就自动派发下一个，不需要人工逐步点确认。 */
   autoAdvancePlan: boolean;
+  /** 开了「先建任务、后说需求」的 AI 智能拆分时，第一条需求只分给这些 Agent / 角色；null 表示没开。 */
+  splitAgentPool: string[] | null;
   /** 计划模式：Agent 只调研、出方案，不改文件；用户批准后关闭并按计划执行。 */
   planMode: boolean;
   /** 这次开启计划模式的时间：只有这之后 Agent 给出过回复，才算有方案可以批准。 */

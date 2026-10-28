@@ -464,6 +464,7 @@ for (const statement of [
   "ALTER TABLE chats ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE tasks ADD COLUMN plan_mode INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE tasks ADD COLUMN base_agent_id TEXT",
+  "ALTER TABLE tasks ADD COLUMN split_agent_pool TEXT",
   "ALTER TABLE workspaces ADD COLUMN knowledge_group_ids TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE workspaces ADD COLUMN mcp_server_ids TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE workspaces ADD COLUMN tool_ids TEXT NOT NULL DEFAULT '[]'",

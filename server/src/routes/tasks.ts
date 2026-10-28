@@ -21,6 +21,7 @@ interface CreateTaskBody {
   autoPlanSubtasks?: boolean;
   multiAgentPlan?: MultiAgentPlan;
   autoAdvancePlan?: boolean;
+  splitAgentPool?: string[];
   planMode?: boolean;
 }
 
@@ -139,6 +140,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
       autoPlanSubtasks,
       multiAgentPlan,
       autoAdvancePlan,
+      splitAgentPool,
       planMode,
     } = req.body ?? ({} as CreateTaskBody);
     if (!agentId || !workspaceId || !title?.trim()) {
@@ -159,6 +161,7 @@ export function registerTaskRoutes(app: FastifyInstance) {
         autoPlanSubtasks,
         multiAgentPlan,
         autoAdvancePlan,
+        splitAgentPool: Array.isArray(splitAgentPool) ? splitAgentPool.filter((item) => typeof item === "string") : undefined,
         planMode: Boolean(planMode),
         actor: "admin",
       });

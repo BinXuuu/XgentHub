@@ -309,19 +309,21 @@ export function runAskCommand(prompt: string, model: string | null | undefined, 
     // 没有 MCP 的普通一次性问答维持原来的行为不变。
     let mcpConfigPath: string | null = null;
     try {
-      const args = ["-p", prompt, "--output-format", "json"];
+      // 走 .cmd 启动时，cmd.exe 在第一个换行处就把整行命令截断了（后面的参数也一起丢）；多行的问题改从 stdin 送。
+      const promptViaStdin = Boolean(cli.preferCmdShim);
+      const args = ["-p", ...(promptViaStdin ? [] : [prompt]), "--output-format", "json"];
       if (model) args.push("--model", model);
       if (mcpServers?.length) {
         mcpConfigPath = writeTempMcpConfigFile(`ask-${Date.now()}`, mcpServers);
         args.push("--mcp-config", mcpConfigPath, "--dangerously-skip-permissions");
       }
       child = spawnCli(cli.bin, args, { env: cli.env, preferCmdShim: cli.preferCmdShim });
+      child.stdin?.end(promptViaStdin ? prompt : undefined);
     } catch (err) {
       cleanupTempMcpConfigFile(mcpConfigPath);
       reject(new Error(`启动 ${cli.label} 失败：${(err as Error).message}`));
       return;
     }
-    child.stdin?.end();
     let stdout = "";
     let stderr = "";
     let settled = false;

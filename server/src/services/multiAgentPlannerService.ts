@@ -181,12 +181,31 @@ function heuristicPlan(
   };
 }
 
-export async function planMultiAgentTask(input: { prompt: string; workspaceId?: string | null; plannerAgentId: string }): Promise<MultiAgentPlan> {
+export async function planMultiAgentTask(input: Parameters<typeof planWithinPool>[0]): Promise<MultiAgentPlan> {
+  const plan = await planWithinPool(input);
+  const workspace = input.workspaceId ? getWorkspace(input.workspaceId) : undefined;
+  const pool = new Set(input.agentPool ?? []);
+  if (pool.size && !authorizedAgents(workspace).some((agent) => pool.has(agent.id))) {
+    return { ...plan, warnings: ["勾选的 Agent 在这个工作区都用不了，改为在所有可用的 Agent 里分配", ...plan.warnings] };
+  }
+  return plan;
+}
+
+async function planWithinPool(input: {
+  prompt: string;
+  workspaceId?: string | null;
+  plannerAgentId: string;
+  /** 只在这几个 Agent / 角色里分配（建任务时勾的）；不传或为空就用工作区里所有能用的。 */
+  agentPool?: string[];
+}): Promise<MultiAgentPlan> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("prompt 不能为空");
 
   const workspace = input.workspaceId ? getWorkspace(input.workspaceId) : undefined;
-  const agents = authorizedAgents(workspace);
+  const authorized = authorizedAgents(workspace);
+  const pool = new Set(input.agentPool ?? []);
+  const pooled = pool.size ? authorized.filter((agent) => pool.has(agent.id)) : authorized;
+  const agents = pooled.length ? pooled : authorized;
   const skills = listResourceLibraryItems("skill");
   const plannerAdapter = getAdapter(input.plannerAgentId);
 

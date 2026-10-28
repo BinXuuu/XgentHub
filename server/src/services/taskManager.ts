@@ -88,6 +88,16 @@ function safeJsonParse(value: string, fallback: unknown): unknown {
   }
 }
 
+function parseSplitAgentPool(raw: unknown): string[] | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
 function rowToTask(row: any): Task {
   return {
     id: row.id,
@@ -103,6 +113,7 @@ function rowToTask(row: any): Task {
     subAgentId: row.sub_agent_id ?? null,
     budgetLimitCny: typeof row.budget_limit_cny === "number" ? row.budget_limit_cny : row.budget_limit_cny == null ? null : Number(row.budget_limit_cny),
     autoAdvancePlan: Boolean(row.auto_advance_plan),
+    splitAgentPool: parseSplitAgentPool(row.split_agent_pool),
     // plan_mode 存的是开启时刻的毫秒时间戳，0 表示关闭。
     planMode: Number(row.plan_mode) > 0,
     planModeSince: Number(row.plan_mode) > 0 ? new Date(Number(row.plan_mode)).toISOString() : null,
@@ -944,6 +955,8 @@ class TaskManager {
     multiAgentPlan?: MultiAgentPlan;
     /** 配合 multiAgentPlan：子任务跑完一个自动派发下一个，不需要逐步人工点确认。 */
     autoAdvancePlan?: boolean;
+    /** 先建任务、后说需求的 AI 智能拆分：第一条需求到了再拆，只分给这些 Agent / 角色。 */
+    splitAgentPool?: string[];
     planMode?: boolean;
     actor: string;
   }): Task {
@@ -974,10 +987,11 @@ class TaskManager {
     const id = nanoid();
     const createdAt = now();
     const shouldStart = Boolean(prompt);
-    const autoAdvancePlan = Boolean(input.multiAgentPlan) && input.autoAdvancePlan !== false;
+    const splitAgentPool = input.splitAgentPool?.length ? [...new Set(input.splitAgentPool.map((item) => item.trim()).filter(Boolean))] : null;
+    const autoAdvancePlan = (Boolean(input.multiAgentPlan) && input.autoAdvancePlan !== false) || Boolean(splitAgentPool);
     db.prepare(
-      `INSERT INTO tasks (id, agent_id, agent_kind, workspace_id, title, prompt, status, session_key, model, permission_mode, sub_agent_id, budget_limit_cny, auto_advance_plan, plan_mode, base_agent_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO tasks (id, agent_id, agent_kind, workspace_id, title, prompt, status, session_key, model, permission_mode, sub_agent_id, budget_limit_cny, auto_advance_plan, plan_mode, base_agent_id, split_agent_pool, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       agentId,
@@ -993,6 +1007,7 @@ class TaskManager {
       autoAdvancePlan ? 1 : 0,
       input.planMode ? Date.now() : 0,
       role?.baseAgentId ?? null,
+      splitAgentPool ? JSON.stringify(splitAgentPool) : null,
       createdAt,
       createdAt
     );
@@ -1015,11 +1030,41 @@ class TaskManager {
       },
     });
     syncAgentDescriptor(toDescriptor(adapter));
+    if (splitAgentPool) {
+      emitTaskEvent({
+        taskId: id,
+        type: "log",
+        payload: { message: `已开启 AI 智能拆分：第一条需求会由 ${adapter.name} 拆成子任务，分给这 ${splitAgentPool.length} 个 Agent / 角色` },
+      });
+    }
     if (!shouldStart) {
       recordAudit({ actor: input.actor, agentId, taskId: id, action: "create_task", detail: { title, prompt, images, initialMessage: false } });
       return task;
     }
+    recordAudit({ actor: input.actor, agentId, taskId: id, action: "create_task", detail: { title, prompt, images, initialMessage: true } });
+    if (splitAgentPool && !input.multiAgentPlan) {
+      void this.splitAndStart(id, prompt, images, input.actor);
+      return task;
+    }
+    this.beginFirstTurn(task, adapter, prompt, images, input.actor, input.multiAgentPlan, input.autoPlanSubtasks);
+    return task;
+  }
 
+  /** 任务的第一轮：按需建子任务计划，然后交给 Agent。建任务时带了需求、或者「先建任务后说需求」的第一条消息都走这里。 */
+  private beginFirstTurn(
+    task: Task,
+    adapter: AgentAdapter,
+    prompt: string,
+    images: string[],
+    actor: string,
+    multiAgentPlan?: MultiAgentPlan,
+    autoPlanSubtasks?: boolean,
+    /** 先记过的用户消息（拆分前就显示出来了），不用再记一遍。 */
+    recordedMessageId?: string
+  ): void {
+    const id = task.id;
+    const agentId = task.agentId;
+    const input = { multiAgentPlan, autoPlanSubtasks, actor };
     const subtaskPlan = input.multiAgentPlan || input.autoPlanSubtasks === false ? null : planSubtasks(prompt);
     const { run } = orchestrator.startRun({ task, prompt, images, source: "create_task" });
     const plannedSubtasks = input.multiAgentPlan
@@ -1063,17 +1108,53 @@ class TaskManager {
         },
       });
     }
-    recordAudit({ actor: input.actor, agentId, taskId: id, action: "create_task", detail: { title, prompt, images, initialMessage: true } });
-
     const ctx = this.createCtx(task, run.id, prompt);
-    const messageId = this.recordUserMessage(id, prompt, images);
+    const messageId = recordedMessageId ?? this.recordUserMessage(id, prompt, images);
     // 有 AI 拆分计划时，总管家第一轮只统筹，活交给后面的子任务；对话里记的仍是用户的原话。
     const firstTurnText =
       input.multiAgentPlan && plannedSubtasks.length > 0 ? buildPlanCoordinatorBrief(prompt, input.multiAgentPlan, plannedSubtasks) : prompt;
 
     this.launch(id, run.id, adapter, ctx, () => this.runTurn(task, ctx, run.id, messageId, () => adapter.run(ctx, { text: firstTurnText, images })), "任务执行异常");
+  }
 
-    return task;
+  /** 正在为第一条需求做 AI 拆分的任务：拆分要调一次总管家 Agent，期间再来的消息先挡住。 */
+  private splittingTasks = new Set<string>();
+
+  /**
+   * 「先建任务、后说需求」的 AI 智能拆分：第一条需求到了才让总管家拆分，只分给建任务时勾的那几个 Agent / 角色，
+   * 拆完直接按计划开跑（子任务自动推进）。拆不出子任务或者拆分失败，就按普通任务交给总管家自己做。
+   */
+  private async splitAndStart(taskId: string, prompt: string, images: string[], actor: string): Promise<void> {
+    const task = this.getTask(taskId);
+    if (!task) return;
+    const adapter = getAdapter(task.agentId);
+    if (!adapter) return;
+    this.splittingTasks.add(taskId);
+    const stamp = now();
+    db.prepare("UPDATE tasks SET status = 'running', prompt = CASE WHEN prompt = '' THEN ? ELSE prompt END, updated_at = ? WHERE id = ?").run(prompt, stamp, taskId);
+    emitTaskEvent({ taskId, type: "status", payload: { status: "running" } });
+    // 拆分要等一会儿，先把用户这条需求显示出来。
+    const messageId = this.recordUserMessage(taskId, prompt, images);
+    emitTaskEvent({ taskId, type: "log", payload: { message: `${adapter.name} 正在拆分需求、分配 Agent……` } });
+    let plan: MultiAgentPlan | null = null;
+    try {
+      const { planMultiAgentTask } = await import("./multiAgentPlannerService.ts");
+      plan = await planMultiAgentTask({ prompt, workspaceId: task.workspaceId, plannerAgentId: task.agentId, agentPool: task.splitAgentPool ?? [] });
+    } catch (err) {
+      emitTaskEvent({ taskId, type: "log", payload: { message: `AI 拆分失败，改由 ${adapter.name} 直接处理：${(err as Error).message}` } });
+    } finally {
+      this.splittingTasks.delete(taskId);
+    }
+    const current = this.getTask(taskId);
+    if (!current) return;
+    if (plan && plan.subtasks.length > 0) {
+      db.prepare("UPDATE tasks SET auto_advance_plan = 1, updated_at = ? WHERE id = ?").run(now(), taskId);
+      for (const warning of plan.warnings) emitTaskEvent({ taskId, type: "log", payload: { message: warning } });
+      this.beginFirstTurn(this.getTask(taskId)!, adapter, prompt, images, actor, { ...plan, prompt }, undefined, messageId);
+    } else {
+      if (plan) emitTaskEvent({ taskId, type: "log", payload: { message: `这条需求不用拆分，由 ${adapter.name} 直接处理` } });
+      this.beginFirstTurn(current, adapter, prompt, images, actor, undefined, false, messageId);
+    }
   }
 
   /** 一轮的完整流程：拍快照 → 跑 Agent → Agent 没自己上报文件改动的话，用快照补上这一轮改了什么。 */
@@ -1284,6 +1365,13 @@ class TaskManager {
     const task = this.getTask(taskId);
     if (!task) throw new Error(`未知任务: ${taskId}`);
     if (!getAdapter(task.agentId)) throw new Error(missingAgentMessage(task.agentId));
+    if (this.splittingTasks.has(taskId)) throw new Error("AI 正在拆分上一条需求，等拆完再发");
+    // 开了 AI 智能拆分、还没拆过：这条就是第一条需求，先拆分再开跑。
+    if (task.splitAgentPool && listSubtasks(taskId).length === 0 && listTaskRuns(taskId).length === 0) {
+      recordAudit({ actor, agentId: task.agentId, taskId, action: "send_message", detail: { message, images, source: "split_first_message" } });
+      void this.splitAndStart(taskId, message, images, actor);
+      return;
+    }
     this.dispatchContinue(taskId, message, images, actor);
   }
 

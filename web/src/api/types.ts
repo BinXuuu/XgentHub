@@ -733,6 +733,7 @@ export interface Task {
   subAgentId: string | null;
   budgetLimitCny: number | null;
   autoAdvancePlan: boolean;
+  splitAgentPool: string[] | null;
   planMode: boolean;
   planModeSince: string | null;
   createdAt: string;

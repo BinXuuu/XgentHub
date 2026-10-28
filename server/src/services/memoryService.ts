@@ -47,6 +47,7 @@ function rowToTask(row: any): Task {
     subAgentId: row.sub_agent_id ?? null,
     budgetLimitCny: row.budget_limit_cny == null ? null : Number(row.budget_limit_cny),
     autoAdvancePlan: Boolean(row.auto_advance_plan),
+    splitAgentPool: null,
     planMode: Number(row.plan_mode) > 0,
     planModeSince: Number(row.plan_mode) > 0 ? new Date(Number(row.plan_mode)).toISOString() : null,
     createdAt: row.created_at,

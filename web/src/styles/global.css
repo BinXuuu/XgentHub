@@ -4029,6 +4029,31 @@ select.field:focus {
   flex-direction: column;
   gap: 10px;
 }
+.split-pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+}
+.split-pool-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-card);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.split-pool-item.selected {
+  border-color: rgba(167, 139, 250, 0.55);
+}
+.split-pool-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .multi-agent-plan-row {
   display: flex;
   flex-direction: column;

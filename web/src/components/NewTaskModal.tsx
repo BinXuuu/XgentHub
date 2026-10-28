@@ -5,7 +5,6 @@ import type {
   KnowledgeGroup,
   McpServerDefinition,
   ModelOption,
-  MultiAgentPlan,
   PermissionMode,
   ResourceLibraryItem,
   Workspace,
@@ -75,13 +74,10 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
   const [mcpServers, setMcpServers] = useState<McpServerDefinition[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // AI 智能拆分：所选 Agent 当总管家，把需求拆成子任务并给每条分配 Agent，创建后依赖满足的同时派发，最后交回总管家汇总。
+  // AI 智能拆分：所选 Agent 当总管家。建任务时只勾这次能分给谁，需求在任务里发第一条消息时再拆，
+  // 拆完依赖满足的子任务同时派发，最后交回总管家汇总；拆分结果在流程图里看、能改派和重做。
   const [smartSplit, setSmartSplit] = useState(false);
-  const [splitPrompt, setSplitPrompt] = useState("");
-  const [multiAgentPlan, setMultiAgentPlan] = useState<MultiAgentPlan | null>(null);
-  const [planningMultiAgent, setPlanningMultiAgent] = useState(false);
-  const [autoAdvancePlan, setAutoAdvancePlan] = useState(true);
-  const [expandedPlanIndex, setExpandedPlanIndex] = useState<number | null>(null);
+  const [splitPool, setSplitPool] = useState<string[]>([]);
   const selectedAgent = agents.find((a) => a.id === agentId);
   const selectedWorkspace = workspaces.find((w) => w.id === workspaceId) ?? null;
   const planAgents = agents.filter(
@@ -89,13 +85,18 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
       agent.configured &&
       (!selectedWorkspace || selectedWorkspace.allowedAgentKinds.length === 0 || selectedWorkspace.allowedAgentKinds.includes(agent.kind))
   );
-  const usablePlan = smartSplit && multiAgentPlan && multiAgentPlan.subtasks.length > 0 ? multiAgentPlan : null;
+  const planAgentIds = planAgents.map((agent) => agent.id).join("|");
 
-  // 换了总管家或工作区，之前的拆分结果（可选 Agent、授权范围）就不一定对了，要重新生成。
+  // 刚打开智能拆分时默认全选；换了工作区，去掉新工作区里用不了的。
   useEffect(() => {
-    setMultiAgentPlan(null);
-    setExpandedPlanIndex(null);
-  }, [agentId, workspaceId]);
+    if (!smartSplit) return;
+    const usable = new Set(planAgentIds.split("|").filter(Boolean));
+    setSplitPool((prev) => (prev.length ? prev.filter((id) => usable.has(id)) : [...usable]));
+  }, [smartSplit, planAgentIds]);
+
+  function toggleSplitAgent(id: string, checked: boolean) {
+    setSplitPool((prev) => (checked ? [...new Set([...prev, id])] : prev.filter((item) => item !== id)));
+  }
 
   useEffect(() => {
     setModel(selectedAgent?.role?.model ?? "");
@@ -226,56 +227,13 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
     }
   }
 
-  async function planMultiAgent() {
-    if (!splitPrompt.trim()) {
-      setError("请先写要做的事，再做智能拆分");
-      return;
-    }
-    if (!agentId || !workspaceId) {
-      setError("请先选择总管家 Agent 和工作区");
-      return;
-    }
-    setPlanningMultiAgent(true);
-    setError(null);
-    setExpandedPlanIndex(null);
-    try {
-      setMultiAgentPlan(await api.planMultiAgentTask({ prompt: splitPrompt.trim(), workspaceId, plannerAgentId: agentId }));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setPlanningMultiAgent(false);
-    }
-  }
-
-  function updatePlannedSubtask(index: number, patch: Partial<MultiAgentPlan["subtasks"][number]>) {
-    setMultiAgentPlan((prev) => (prev ? { ...prev, subtasks: prev.subtasks.map((item) => (item.index === index ? { ...item, ...patch } : item)) } : prev));
-  }
-
-  /** 删掉一条子任务时，别的子任务对它的依赖也一起去掉，不然后面的子任务永远等不到它完成。 */
-  function removePlannedSubtask(index: number) {
-    setMultiAgentPlan((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks
-              .filter((item) => item.index !== index)
-              .map((item) => ({ ...item, dependsOn: item.dependsOn.filter((dep) => dep !== index) })),
-          }
-        : prev
-    );
-  }
-
   async function submit() {
     if (!agentId || !workspaceId || !title.trim()) {
       setError("请选择 agent、workspace 并填写任务名称");
       return;
     }
-    if (smartSplit && !usablePlan) {
-      setError("已开启 AI 智能拆分：请先点「生成拆分方案」，或者关掉智能拆分直接创建");
-      return;
-    }
-    if (usablePlan?.subtasks.some((item) => !item.targetAgentId)) {
-      setError("还有子任务没有指定 Agent");
+    if (smartSplit && splitPool.length === 0) {
+      setError("AI 智能拆分至少要勾一个能分配的 Agent，或者关掉智能拆分");
       return;
     }
     const budgetValue = budgetLimitCny.trim() ? Number(budgetLimitCny) : null;
@@ -294,10 +252,8 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
         permissionMode,
         subAgentId: subAgentId || undefined,
         budgetLimitCny: selectedAgent?.id === "tokenezgo" ? budgetValue : undefined,
-        planMode: usablePlan ? false : planMode,
-        ...(usablePlan
-          ? { prompt: splitPrompt.trim(), multiAgentPlan: { ...usablePlan, prompt: splitPrompt.trim() }, autoAdvancePlan }
-          : {}),
+        planMode: smartSplit ? false : planMode,
+        splitAgentPool: smartSplit ? splitPool : undefined,
       });
       onCreated(task.id);
     } catch (err) {
@@ -527,112 +483,37 @@ export function NewTaskModal({ agents, workspaces, onClose, onCreated, onOpenWor
         <label className="plan-mode-check">
           <input type="checkbox" checked={smartSplit} onChange={(e) => setSmartSplit(e.target.checked)} />
           <span>
-            <strong>AI 智能拆分并分配 Agent</strong>：上面选的 Agent 当总管家，把要做的事拆成几个子任务、分给最合适的 Agent；互不依赖的子任务同时跑，全部完成后交回总管家汇总
+            <strong>AI 智能拆分并分配 Agent</strong>：上面选的 Agent 当总管家。在任务里发第一条需求时，它把需求拆成几个子任务、从下面勾的 Agent 里分配；互不依赖的子任务同时跑，全部完成后交回总管家汇总
           </span>
         </label>
 
         {smartSplit && (
           <section className="subtask-plan multi-agent-plan">
             <div className="field-label-row">
-              <label className="field-label">要做的事</label>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={planMultiAgent} disabled={planningMultiAgent || !splitPrompt.trim()}>
-                {planningMultiAgent ? "规划中..." : multiAgentPlan ? "重新生成" : "生成拆分方案"}
+              <label className="field-label">这次可以分给（{splitPool.length}/{planAgents.length}）</label>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => setSplitPool(splitPool.length === planAgents.length ? [] : planAgents.map((agent) => agent.id))}
+              >
+                {splitPool.length === planAgents.length ? "全不选" : "全选"}
               </button>
             </div>
-            <textarea
-              className="field"
-              rows={4}
-              placeholder="把完整需求写在这里，比如：给官网做一版新的首页，包括配图、文案和前端实现"
-              value={splitPrompt}
-              onChange={(e) => {
-                setSplitPrompt(e.target.value);
-                setMultiAgentPlan(null);
-              }}
-            />
-            {selectedAgent && !selectedAgent.supportsAsk && (
-              <div className="not-configured">{selectedAgent.name} 不支持一次性问答，会用本地规则拆分；想让 AI 来拆，换一个总管家 Agent。</div>
-            )}
-
-            {multiAgentPlan && (
-              <>
-                <div className="subtask-plan-head">
-                  <div>
-                    <strong>拆成 {multiAgentPlan.subtasks.length} 个子任务</strong>
-                    <span>{multiAgentPlan.source === "llm" ? `由 ${selectedAgent?.name ?? "总管家"} 规划` : "本地规则兜底"}</span>
-                  </div>
-                </div>
-                {multiAgentPlan.reasoning && (
-                  <div className="subtask-plan-reasons">
-                    <span>{multiAgentPlan.reasoning}</span>
-                  </div>
-                )}
-                {multiAgentPlan.warnings.map((warning) => (
-                  <div key={warning} className="butler-warnings">
-                    <span>{warning}</span>
-                  </div>
-                ))}
-                {multiAgentPlan.subtasks.length === 0 && <div className="not-configured">没有剩下的子任务了，重新生成或关掉智能拆分。</div>}
-                <div className="multi-agent-plan-rows">
-                  {multiAgentPlan.subtasks.map((item, position) => (
-                    <div key={item.index} className="multi-agent-plan-row">
-                      <div className="multi-agent-plan-row-title">
-                        <strong>
-                          {position + 1}. {item.title}
-                        </strong>
-                        {item.description && <span>{item.description}</span>}
-                        {item.dependsOn.length > 0 && (
-                          <span>
-                            等这些做完再开始：
-                            {item.dependsOn
-                              .map((dep) => multiAgentPlan.subtasks.find((other) => other.index === dep)?.title)
-                              .filter(Boolean)
-                              .join("、")}
-                          </span>
-                        )}
-                      </div>
-                      <select
-                        className="field"
-                        value={item.targetAgentId ?? ""}
-                        onChange={(e) => updatePlannedSubtask(item.index, { targetAgentId: e.target.value || null })}
-                      >
-                        <option value="">（请选择 Agent）</option>
-                        {planAgents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.role?.icon ? `${agent.role.icon} ` : ""}
-                            {agent.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="multi-agent-plan-row-actions">
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          onClick={() => setExpandedPlanIndex(expandedPlanIndex === item.index ? null : item.index)}
-                        >
-                          {expandedPlanIndex === item.index ? "收起指令" : "查看/修改指令"}
-                        </button>
-                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => removePlannedSubtask(item.index)}>
-                          删除
-                        </button>
-                      </div>
-                      {expandedPlanIndex === item.index && (
-                        <textarea
-                          className="field"
-                          rows={6}
-                          value={item.prompt}
-                          placeholder="发给这个 Agent 的完整指令；留空则派发时用子任务标题"
-                          onChange={(e) => updatePlannedSubtask(item.index, { prompt: e.target.value })}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <label className="subtask-auto-toggle">
-                  <input type="checkbox" checked={autoAdvancePlan} onChange={(e) => setAutoAdvancePlan(e.target.checked)} />
-                  <span>创建后自动执行：依赖满足的子任务同时开跑，全部完成后自动汇总（不勾的话，每个子任务要在任务里手动点「执行下个子任务」）</span>
+            <div className="split-pool-grid">
+              {planAgents.map((agent) => (
+                <label key={agent.id} className={`split-pool-item ${splitPool.includes(agent.id) ? "selected" : ""}`}>
+                  <input type="checkbox" checked={splitPool.includes(agent.id)} onChange={(e) => toggleSplitAgent(agent.id, e.target.checked)} />
+                  <span>
+                    {agent.role?.icon ? `${agent.role.icon} ` : ""}
+                    {agent.name}
+                  </span>
                 </label>
-              </>
-            )}
+              ))}
+            </div>
+            <div className="config-field-help">
+              只管第一次自动分配。之后在任务的流程图里，每个子任务都能改派给任何 Agent 或角色并重做。
+              {selectedAgent && !selectedAgent.supportsAsk && ` ${selectedAgent.name} 不支持一次性问答，会用本地规则拆分。`}
+            </div>
           </section>
         )}
 
