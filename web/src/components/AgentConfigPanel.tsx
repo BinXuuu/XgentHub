@@ -5,7 +5,6 @@ import type {
   AgentDiagnostics,
   AgentSetupAction,
   GatewayBillingSettings,
-  GatewayCloudAccountStatus,
   GatewayModelPriceRule,
   GatewayOverview,
   ModelOption,
@@ -26,6 +25,13 @@ interface Props {
 }
 
 type GatewaySettingInputKey = Exclude<keyof GatewayBillingSettings, "modelPriceRules">;
+
+// TokenEZGO 按美元记账；知道站点充值价时顺带给出人民币约数。
+function usdText(usd: number, cnyPerUsd: number | null): string {
+  if (usd > 0 && usd < 0.0001) return "<$0.0001";
+  const main = `$${usd.toFixed(usd >= 100 ? 2 : 4).replace(/\.?0+$/, "") || "0"}`;
+  return cnyPerUsd ? `${main}（约 ¥${(usd * cnyPerUsd).toFixed(2)}）` : main;
+}
 
 export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreated, onDeleted }: Props) {
   const isAddedAccount = Boolean(agent.account && !agent.account.isDefault);
@@ -57,7 +63,6 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
     outputPriceCnyPer1K: "",
   });
   const [modelPriceRules, setModelPriceRules] = useState<GatewayModelPriceRule[]>([]);
-  const [cloudAccount, setCloudAccount] = useState<GatewayCloudAccountStatus | null>(null);
   const [savingGateway, setSavingGateway] = useState(false);
   const [gatewayMessage, setGatewayMessage] = useState<string | null>(null);
 
@@ -76,10 +81,8 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
     if (agent.id !== "tokenezgo") return;
     try {
       applyGatewayOverview(await api.getOfficialGatewayOverview(refreshBalance));
-      setCloudAccount(await api.getOfficialGatewayCloudAccount());
     } catch {
       setGatewayOverview(null);
-      setCloudAccount(null);
     }
   }
 
@@ -142,17 +145,12 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
           });
         setLoadingDiagnostics(true);
         if (agent.id === "tokenezgo") {
-          Promise.all([api.getOfficialGatewayOverview(), api.getOfficialGatewayCloudAccount()])
-            .then(([overview, account]) => {
-              if (cancelled) return;
-              applyGatewayOverview(overview);
-              setCloudAccount(account);
+          api.getOfficialGatewayOverview()
+            .then((overview) => {
+              if (!cancelled) applyGatewayOverview(overview);
             })
             .catch(() => {
-              if (!cancelled) {
-                setGatewayOverview(null);
-                setCloudAccount(null);
-              }
+              if (!cancelled) setGatewayOverview(null);
             });
         }
       } catch (err) {
@@ -335,6 +333,8 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
     }
   }
 
+  const live = gatewayOverview?.liveBalance ?? null;
+
   return (
     <div className="detail-pane agent-config-pane">
       <div className="detail-header">
@@ -384,7 +384,13 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                 <div className="gateway-overview-grid">
                   <div>
                     <span>API Key</span>
-                    <strong>{gatewayOverview.apiKeyConfigured ? "已配置" : "未配置"}</strong>
+                    <strong>{gatewayOverview.apiKeyConfigured ? (live?.keyName ?? "已配置") : "未配置"}</strong>
+                    {live?.ok && (
+                      <small>
+                        {live.expiresAt ? `${new Date(live.expiresAt).toLocaleDateString("zh-CN")} 到期` : "永不过期"}
+                        {live.modelLimits.length > 0 ? `，限 ${live.modelLimits.length} 个模型` : ""}
+                      </small>
+                    )}
                   </div>
                   <div>
                     <span>余额</span>
@@ -392,196 +398,169 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                     {gatewayOverview.balanceDetail && <small>{gatewayOverview.balanceDetail}</small>}
                   </div>
                   <div>
-                    <span>本月本地估算</span>
-                    <strong>¥{gatewayOverview.month.estimatedCostCny}</strong>
-                    <small>{gatewayOverview.month.totalTokens} tokens / {gatewayOverview.month.recordCount} 次</small>
-                  </div>
-                  <div>
-                    <span>月度提醒预算</span>
-                    <strong>{gatewayOverview.settings.monthlyBudgetCny > 0 ? `¥${gatewayOverview.settings.monthlyBudgetCny}` : "未设置"}</strong>
+                    <span>本月消费</span>
+                    <strong>{live?.month ? usdText(live.month.costUsd, live.cnyPerUsd) : "-"}</strong>
+                    {live?.month && (
+                      <small>{live.month.count} 次 / {live.month.promptTokens + live.month.completionTokens} tokens</small>
+                    )}
                   </div>
                 </div>
-
-                <div className="gateway-settings-grid">
-                  <label className="config-field">
-                    <span className="config-label-row">
-                      <span>默认单任务预算（元）</span>
-                    </span>
-                    <input
-                      className="field"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0 表示不默认限制"
-                      value={gatewaySettings.defaultTaskBudgetCny}
-                      onChange={(e) => setGatewayValue("defaultTaskBudgetCny", e.target.value)}
-                    />
-                  </label>
-                  <label className="config-field">
-                    <span className="config-label-row">
-                      <span>月度提醒预算（元）</span>
-                    </span>
-                    <input
-                      className="field"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0 表示不拦截"
-                      value={gatewaySettings.monthlyBudgetCny}
-                      onChange={(e) => setGatewayValue("monthlyBudgetCny", e.target.value)}
-                    />
-                  </label>
-                  <label className="config-field">
-                    <span className="config-label-row">
-                      <span>输入单价（元 / 1K tokens）</span>
-                    </span>
-                    <input
-                      className="field"
-                      type="number"
-                      min="0"
-                      step="0.0001"
-                      placeholder="用于本地估算"
-                      value={gatewaySettings.inputPriceCnyPer1K}
-                      onChange={(e) => setGatewayValue("inputPriceCnyPer1K", e.target.value)}
-                    />
-                  </label>
-                  <label className="config-field">
-                    <span className="config-label-row">
-                      <span>输出单价（元 / 1K tokens）</span>
-                    </span>
-                    <input
-                      className="field"
-                      type="number"
-                      min="0"
-                      step="0.0001"
-                      placeholder="用于本地估算"
-                      value={gatewaySettings.outputPriceCnyPer1K}
-                      onChange={(e) => setGatewayValue("outputPriceCnyPer1K", e.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className="gateway-rule-editor">
-                  <div className="gateway-rule-head">
-                    <div>
-                      <strong>按模型估算价格规则</strong>
-                      <span>第一条匹配规则优先；pattern 支持 *，例如 claude-* 或 gpt-4.1*</span>
-                    </div>
-                    <button className="btn btn-sm" type="button" onClick={addPriceRule}>
-                      + 添加规则
-                    </button>
-                  </div>
-                  {modelPriceRules.length === 0 ? (
-                    <div className="sidebar-help">暂无模型规则。没有匹配规则时，会使用上面的默认估算单价。</div>
-                  ) : (
-                    <div className="gateway-rule-table">
-                      <div className="gateway-rule-row header">
-                        <span>启用</span>
-                        <span>名称</span>
-                        <span>模型匹配</span>
-                        <span>输入元/1K</span>
-                        <span>输出元/1K</span>
-                        <span />
-                      </div>
-                      {modelPriceRules.map((rule, index) => (
-                        <div className="gateway-rule-row" key={rule.id || index}>
-                          <label className="toggle-cell">
-                            <input type="checkbox" checked={rule.enabled !== false} onChange={(e) => setPriceRule(index, { enabled: e.target.checked })} />
-                          </label>
-                          <input className="field" value={rule.label} placeholder="Claude 系列" onChange={(e) => setPriceRule(index, { label: e.target.value })} />
-                          <input className="field" value={rule.pattern} placeholder="claude-*" onChange={(e) => setPriceRule(index, { pattern: e.target.value })} />
-                          <input
-                            className="field"
-                            type="number"
-                            min="0"
-                            step="0.0001"
-                            value={rule.inputPriceCnyPer1K || ""}
-                            onChange={(e) => setPriceRule(index, { inputPriceCnyPer1K: Number(e.target.value || 0) })}
-                          />
-                          <input
-                            className="field"
-                            type="number"
-                            min="0"
-                            step="0.0001"
-                            value={rule.outputPriceCnyPer1K || ""}
-                            onChange={(e) => setPriceRule(index, { outputPriceCnyPer1K: Number(e.target.value || 0) })}
-                          />
-                          <button className="btn btn-ghost btn-sm" type="button" onClick={() => removePriceRule(index)}>
-                            删除
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="config-field-help">这里只用于本地预算提醒，不代表 TokenEZGO 实际价格；保存时会自动忽略没有填写模型匹配的空行。</div>
-                </div>
-
-                <div className="config-actions">
-                  <button className="btn btn-primary btn-sm" type="button" onClick={saveGatewaySettings} disabled={savingGateway}>
-                    {savingGateway ? "保存中..." : "保存预算设置"}
-                  </button>
-                  {gatewayMessage && <span className="save-state">{gatewayMessage}</span>}
-                </div>
-
-                <div className="gateway-notices">
-                  {gatewayOverview.notices.map((notice) => (
-                    <div key={notice}>{notice}</div>
-                  ))}
-                </div>
-
-                <div className="gateway-price-table">
-                  <div className="gateway-ledger-head">
-                    <strong>价格表预览</strong>
-                    <span>按顺序匹配模型名</span>
-                  </div>
-                  {gatewayOverview.priceTable.map((row) => (
-                    <div className={`gateway-price-row ${row.enabled ? "" : "disabled"}`} key={row.id}>
-                      <span>{row.label}</span>
-                      <code>{row.pattern}</code>
-                      <span>输入 ¥{row.inputPriceCnyPer1K}/1K</span>
-                      <span>输出 ¥{row.outputPriceCnyPer1K}/1K</span>
-                    </div>
-                  ))}
-                </div>
-
-                {cloudAccount && (
-                  <div className="gateway-cloud-box">
-                    <div>
-                      <strong>{cloudAccount.accountLabel}</strong>
-                      <span>{cloudAccount.balanceLabel}</span>
-                    </div>
-                    <button className="btn btn-sm" type="button" onClick={() => window.open(cloudAccount.billingUrl, "_blank", "noopener,noreferrer")}>
-                      打开 TokenEZGO
-                    </button>
-                    <div className="gateway-cloud-capabilities">
-                      {cloudAccount.reservedCapabilities.map((item) => (
-                        <span key={item}>{item}</span>
-                      ))}
-                    </div>
-                    {cloudAccount.notes.map((note) => (
-                      <p key={note}>{note}</p>
-                    ))}
-                  </div>
-                )}
 
                 <div className="gateway-ledger">
                   <div className="gateway-ledger-head">
-                    <strong>最近本地用量</strong>
-                    <span>真实扣费以 TokenEZGO 为准</span>
+                    <strong>最近调用</strong>
+                    <span>TokenEZGO 实际扣费，只统计这个 API Key</span>
                   </div>
-                  {gatewayOverview.recentRecords.length === 0 ? (
+                  {!live?.recentCalls.length ? (
                     <div className="meta">暂无记录</div>
                   ) : (
-                    gatewayOverview.recentRecords.map((record) => (
-                      <div className="gateway-ledger-row" key={record.id}>
-                        <span>{new Date(record.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
-                        <span>{record.model}</span>
-                        <span>{record.totalTokens} tokens</span>
-                        <strong>¥{record.estimatedCostCny}</strong>
+                    live.recentCalls.map((call) => (
+                      <div className="gateway-ledger-row" key={call.id}>
+                        <span>{new Date(call.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+                        <span>{call.model}</span>
+                        <span>{call.promptTokens} / {call.completionTokens} tokens</span>
+                        <strong>{usdText(call.costUsd, null)}</strong>
                       </div>
                     ))
                   )}
                 </div>
+
+                <div className="gateway-external-note">
+                  <span>账户总余额、充值记录和全部账单请到 TokenEZGO 官网查看。</span>
+                  <button className="btn btn-sm" type="button" onClick={() => window.open(gatewayOverview.billingUrl, "_blank", "noopener,noreferrer")}>
+                    打开 TokenEZGO
+                  </button>
+                </div>
+
+                <details className="gateway-budget-details">
+                  <summary>本地预算提醒（可选）</summary>
+                  <div className="gateway-settings-grid">
+                    <label className="config-field">
+                      <span className="config-label-row">
+                        <span>默认单任务预算（元）</span>
+                      </span>
+                      <input
+                        className="field"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0 表示不默认限制"
+                        value={gatewaySettings.defaultTaskBudgetCny}
+                        onChange={(e) => setGatewayValue("defaultTaskBudgetCny", e.target.value)}
+                      />
+                    </label>
+                    <label className="config-field">
+                      <span className="config-label-row">
+                        <span>月度提醒预算（元）</span>
+                      </span>
+                      <input
+                        className="field"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0 表示不拦截"
+                        value={gatewaySettings.monthlyBudgetCny}
+                        onChange={(e) => setGatewayValue("monthlyBudgetCny", e.target.value)}
+                      />
+                    </label>
+                    <label className="config-field">
+                      <span className="config-label-row">
+                        <span>输入单价（元 / 1K tokens）</span>
+                      </span>
+                      <input
+                        className="field"
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        placeholder="用于本地估算"
+                        value={gatewaySettings.inputPriceCnyPer1K}
+                        onChange={(e) => setGatewayValue("inputPriceCnyPer1K", e.target.value)}
+                      />
+                    </label>
+                    <label className="config-field">
+                      <span className="config-label-row">
+                        <span>输出单价（元 / 1K tokens）</span>
+                      </span>
+                      <input
+                        className="field"
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        placeholder="用于本地估算"
+                        value={gatewaySettings.outputPriceCnyPer1K}
+                        onChange={(e) => setGatewayValue("outputPriceCnyPer1K", e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="gateway-rule-editor">
+                    <div className="gateway-rule-head">
+                      <div>
+                        <strong>按模型估算价格规则</strong>
+                        <span>第一条匹配规则优先；pattern 支持 *，例如 claude-* 或 gpt-4.1*</span>
+                      </div>
+                      <button className="btn btn-sm" type="button" onClick={addPriceRule}>
+                        + 添加规则
+                      </button>
+                    </div>
+                    {modelPriceRules.length === 0 ? (
+                      <div className="sidebar-help">暂无模型规则。没有匹配规则时，会使用上面的默认估算单价。</div>
+                    ) : (
+                      <div className="gateway-rule-table">
+                        <div className="gateway-rule-row header">
+                          <span>启用</span>
+                          <span>名称</span>
+                          <span>模型匹配</span>
+                          <span>输入元/1K</span>
+                          <span>输出元/1K</span>
+                          <span />
+                        </div>
+                        {modelPriceRules.map((rule, index) => (
+                          <div className="gateway-rule-row" key={rule.id || index}>
+                            <label className="toggle-cell">
+                              <input type="checkbox" checked={rule.enabled !== false} onChange={(e) => setPriceRule(index, { enabled: e.target.checked })} />
+                            </label>
+                            <input className="field" value={rule.label} placeholder="Claude 系列" onChange={(e) => setPriceRule(index, { label: e.target.value })} />
+                            <input className="field" value={rule.pattern} placeholder="claude-*" onChange={(e) => setPriceRule(index, { pattern: e.target.value })} />
+                            <input
+                              className="field"
+                              type="number"
+                              min="0"
+                              step="0.0001"
+                              value={rule.inputPriceCnyPer1K || ""}
+                              onChange={(e) => setPriceRule(index, { inputPriceCnyPer1K: Number(e.target.value || 0) })}
+                            />
+                            <input
+                              className="field"
+                              type="number"
+                              min="0"
+                              step="0.0001"
+                              value={rule.outputPriceCnyPer1K || ""}
+                              onChange={(e) => setPriceRule(index, { outputPriceCnyPer1K: Number(e.target.value || 0) })}
+                            />
+                            <button className="btn btn-ghost btn-sm" type="button" onClick={() => removePriceRule(index)}>
+                              删除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="config-field-help">这里只用于本地预算提醒，不代表 TokenEZGO 实际价格；保存时会自动忽略没有填写模型匹配的空行。</div>
+                  </div>
+
+                  <div className="config-actions">
+                    <button className="btn btn-primary btn-sm" type="button" onClick={saveGatewaySettings} disabled={savingGateway}>
+                      {savingGateway ? "保存中..." : "保存预算设置"}
+                    </button>
+                    {gatewayMessage && <span className="save-state">{gatewayMessage}</span>}
+                  </div>
+
+                  <div className="gateway-notices">
+                    {gatewayOverview.notices.map((notice) => (
+                      <div key={notice}>{notice}</div>
+                    ))}
+                  </div>
+                </details>
               </>
             )}
           </section>

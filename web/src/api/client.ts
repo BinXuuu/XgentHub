@@ -14,7 +14,6 @@ import type {
   ChatConversation,
   ChatMessage,
   GatewayBillingSettings,
-  GatewayCloudAccountStatus,
   GatewayOverview,
   GatewayTaskUsage,
   Host,
@@ -380,7 +379,6 @@ export const api = {
   updateOfficialGatewaySettings: (settings: Partial<GatewayBillingSettings>) =>
     request<GatewayOverview>("/gateway/official/settings", { method: "PUT", body: JSON.stringify({ settings }) }),
   getOfficialGatewayTaskUsage: (taskId: string) => request<GatewayTaskUsage>(`/gateway/official/tasks/${taskId}/usage`),
-  getOfficialGatewayCloudAccount: () => request<GatewayCloudAccountStatus>("/gateway/official/cloud-account"),
 
   getOnboardingOverview: () => request<OnboardingOverview>("/onboarding/overview"),
   runDoctor: () => request<SystemCommandResult>("/system/doctor", { method: "POST", body: JSON.stringify({}) }),

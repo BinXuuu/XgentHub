@@ -475,16 +475,23 @@ export interface GatewayTaskUsage {
   records: GatewayUsageRecord[];
 }
 
-export interface GatewayCloudAccountStatus {
-  provider: "tokenezgo";
-  status: "external_only";
-  signedIn: false;
-  loginSupported: false;
-  accountLabel: string;
-  balanceLabel: string;
-  billingUrl: string;
-  reservedCapabilities: string[];
-  notes: string[];
+export interface GatewayKeyCall {
+  id: string;
+  createdAt: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  useTimeSec: number;
+  stream: boolean;
+}
+
+export interface GatewayKeyMonth {
+  monthKey: string;
+  count: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
 }
 
 export interface GatewayLiveBalance {
@@ -494,6 +501,11 @@ export interface GatewayLiveBalance {
   usedUsd: number | null;
   remainUsd: number | null;
   cnyPerUsd: number | null;
+  keyName: string | null;
+  expiresAt: string | null;
+  modelLimits: string[];
+  month: GatewayKeyMonth | null;
+  recentCalls: GatewayKeyCall[];
   error: string | null;
   fetchedAt: string;
 }

@@ -1370,38 +1370,12 @@ select.field:focus {
   border-top: 1px solid rgba(249, 115, 22, 0.18);
   padding-top: 10px;
 }
-.gateway-price-table {
-  margin-top: 12px;
-  max-width: 920px;
-  border-top: 1px solid rgba(249, 115, 22, 0.18);
-  padding-top: 10px;
-}
 .gateway-ledger-head,
 .gateway-ledger-row {
   display: grid;
-  grid-template-columns: 160px minmax(140px, 1fr) 110px 80px;
+  grid-template-columns: 150px minmax(140px, 1fr) 150px 80px;
   gap: 8px;
   align-items: center;
-}
-.gateway-price-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) 130px 130px;
-  gap: 8px;
-  min-height: 30px;
-  align-items: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--text-dim);
-  font-size: 12px;
-}
-.gateway-price-row.disabled {
-  opacity: 0.55;
-}
-.gateway-price-row code {
-  color: var(--text);
-  font-family: var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .gateway-ledger-head {
   margin-bottom: 6px;
@@ -1420,6 +1394,21 @@ select.field:focus {
 .gateway-ledger-row strong {
   color: var(--text);
   text-align: right;
+}
+@media (max-width: 640px) {
+  /* 手机上一条记录折成两行：时间 | 模型，tokens | 扣费 */
+  .gateway-ledger-head,
+  .gateway-ledger-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .gateway-ledger-row {
+    padding: 4px 0;
+  }
+  .gateway-external-note {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 .official-task-budget {
   border: 1px solid rgba(249, 115, 22, 0.24);
@@ -1482,42 +1471,26 @@ select.field:focus {
   height: 16px;
   accent-color: var(--accent);
 }
-.gateway-cloud-box {
+.gateway-external-note {
   margin-top: 12px;
   max-width: 920px;
-  border: 1px solid rgba(79, 140, 255, 0.2);
-  background: rgba(79, 140, 255, 0.06);
-  border-radius: var(--radius);
-  padding: 12px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-}
-.gateway-cloud-box > div:first-child {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.gateway-cloud-box span,
-.gateway-cloud-box p {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   color: var(--text-faint);
   font-size: 12px;
-  line-height: 1.45;
-  margin: 0;
 }
-.gateway-cloud-capabilities {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.gateway-budget-details {
+  margin-top: 12px;
+  max-width: 920px;
+  border-top: 1px solid rgba(249, 115, 22, 0.18);
+  padding-top: 10px;
 }
-.gateway-cloud-capabilities span {
-  border: 1px solid rgba(79, 140, 255, 0.22);
-  border-radius: 999px;
-  padding: 3px 8px;
+.gateway-budget-details > summary {
+  cursor: pointer;
   color: var(--text-dim);
-  background: rgba(11, 13, 16, 0.35);
+  font-size: 12px;
 }
 .usage-tab {
   padding: 16px;
@@ -9478,8 +9451,6 @@ select.field:focus {
 [data-theme="light"] .agent-config-pane .setup-step,
 [data-theme="light"] .agent-config-pane .model-preview,
 [data-theme="light"] .agent-config-pane .gateway-rule-editor,
-[data-theme="light"] .agent-config-pane .gateway-price-table,
-[data-theme="light"] .agent-config-pane .gateway-cloud-box,
 [data-theme="light"] .agent-config-pane .gateway-ledger {
   border-color: #e1eaf5;
   background: #fbfdff;
@@ -9592,7 +9563,6 @@ select.field:focus {
 [data-theme="light"] .budget-summary-grid > div,
 [data-theme="light"] .model-chip,
 [data-theme="light"] .config-path,
-[data-theme="light"] .gateway-price-row,
 [data-theme="light"] .gateway-ledger-row {
   border-color: #dfe9f6;
   background: #ffffff;

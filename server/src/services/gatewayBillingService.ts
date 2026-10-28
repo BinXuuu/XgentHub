@@ -64,16 +64,24 @@ export interface GatewayTaskUsage {
   records: GatewayUsageRecord[];
 }
 
-export interface GatewayCloudAccountStatus {
-  provider: "tokenezgo";
-  status: "external_only";
-  signedIn: false;
-  loginSupported: false;
-  accountLabel: string;
-  balanceLabel: string;
-  billingUrl: string;
-  reservedCapabilities: string[];
-  notes: string[];
+// TokenEZGO 上这个 API Key 的一次真实调用（来自 /api/log/token，金额已按站点倍率扣过）。
+export interface GatewayKeyCall {
+  id: string;
+  createdAt: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  useTimeSec: number;
+  stream: boolean;
+}
+
+export interface GatewayKeyMonth {
+  monthKey: string;
+  count: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
 }
 
 export interface GatewayLiveBalance {
@@ -83,6 +91,11 @@ export interface GatewayLiveBalance {
   usedUsd: number | null;
   remainUsd: number | null;
   cnyPerUsd: number | null;
+  keyName: string | null;
+  expiresAt: string | null;
+  modelLimits: string[];
+  month: GatewayKeyMonth | null;
+  recentCalls: GatewayKeyCall[];
   error: string | null;
   fetchedAt: string;
 }
@@ -396,10 +409,13 @@ export async function getGatewayLiveBalance(force = false): Promise<GatewayLiveB
   const base = gatewayApiBase();
   let value: GatewayLiveBalance;
   try {
-    const [subscription, usage, status] = await Promise.all([
+    // 额度两项是必需的；Key 详情和调用记录是 new-api 后加的接口，查不到时只少显示一些内容。
+    const [subscription, usage, status, tokenUsage, logs] = await Promise.all([
       getJson(`${base}/dashboard/billing/subscription`, true),
       getJson(`${base}/dashboard/billing/usage`, true),
       getJson(`${gatewayOrigin()}/api/status`, false).catch(() => null),
+      getJson(`${gatewayOrigin()}/api/usage/token/`, true).catch(() => null),
+      getJson(`${gatewayOrigin()}/api/log/token`, true).catch(() => null),
     ]);
     const total = Number(subscription?.hard_limit_usd);
     const usedCents = Number(usage?.total_usage);
@@ -407,6 +423,9 @@ export async function getGatewayLiveBalance(force = false): Promise<GatewayLiveB
     const unlimited = total >= UNLIMITED_USD;
     const usedUsd = Number.isFinite(usedCents) ? roundMoney(usedCents / 100) : null;
     const rate = Number(status?.data?.price) || Number(status?.data?.usd_exchange_rate) || 0;
+    const quotaPerUnit = Number(status?.data?.quota_per_unit) || DEFAULT_QUOTA_PER_UNIT;
+    const keyInfo = tokenUsage?.data;
+    const calls = Array.isArray(logs?.data) ? parseKeyCalls(logs.data, quotaPerUnit) : null;
     value = {
       ok: true,
       unlimited,
@@ -414,17 +433,58 @@ export async function getGatewayLiveBalance(force = false): Promise<GatewayLiveB
       usedUsd,
       remainUsd: unlimited || usedUsd === null ? null : roundMoney(Math.max(0, total - usedUsd)),
       cnyPerUsd: rate > 0 ? rate : null,
+      keyName: typeof keyInfo?.name === "string" && keyInfo.name ? keyInfo.name : null,
+      expiresAt: Number(keyInfo?.expires_at) > 0 ? new Date(Number(keyInfo.expires_at) * 1000).toISOString() : null,
+      modelLimits: keyInfo?.model_limits_enabled && keyInfo.model_limits && typeof keyInfo.model_limits === "object" ? Object.keys(keyInfo.model_limits) : [],
+      month: calls ? summarizeKeyMonth(calls) : null,
+      recentCalls: calls ? calls.slice(0, 10) : [],
       error: null,
       fetchedAt: now(),
     };
   } catch (err) {
-    value = { ok: false, unlimited: false, totalUsd: null, usedUsd: null, remainUsd: null, cnyPerUsd: null, error: err instanceof Error ? err.message : String(err), fetchedAt: now() };
+    value = {
+      ok: false, unlimited: false, totalUsd: null, usedUsd: null, remainUsd: null, cnyPerUsd: null,
+      keyName: null, expiresAt: null, modelLimits: [], month: null, recentCalls: [],
+      error: err instanceof Error ? err.message : String(err), fetchedAt: now(),
+    };
   }
   liveBalanceCache = { at: Date.now(), value };
   return value;
 }
 
+// new-api 的消费日志里 quota 是内部额度单位，除以 quota_per_unit 才是美元。
+const DEFAULT_QUOTA_PER_UNIT = 500_000;
+
+function parseKeyCalls(rows: any[], quotaPerUnit: number): GatewayKeyCall[] {
+  return rows
+    .filter((row) => row && Number(row.type) === 2) // 2 = 消费；充值、管理等记录不算
+    .map((row) => ({
+      id: String(row.request_id || row.id),
+      createdAt: new Date(Number(row.created_at) * 1000).toISOString(),
+      model: String(row.model_name ?? ""),
+      promptTokens: Number(row.prompt_tokens) || 0,
+      completionTokens: Number(row.completion_tokens) || 0,
+      costUsd: Math.round(((Number(row.quota) || 0) / quotaPerUnit) * 1e8) / 1e8, // 单次可能只有几百万分之一美元，不能按 4 位小数抹成 0
+      useTimeSec: Number(row.use_time) || 0,
+      stream: Boolean(row.is_stream),
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function summarizeKeyMonth(calls: GatewayKeyCall[]): GatewayKeyMonth {
+  const key = monthKey();
+  const inMonth = calls.filter((call) => monthKey(new Date(call.createdAt)) === key);
+  return {
+    monthKey: key,
+    count: inMonth.length,
+    promptTokens: inMonth.reduce((sum, call) => sum + call.promptTokens, 0),
+    completionTokens: inMonth.reduce((sum, call) => sum + call.completionTokens, 0),
+    costUsd: roundMoney(inMonth.reduce((sum, call) => sum + call.costUsd, 0)),
+  };
+}
+
 function usdText(usd: number, rate: number | null): string {
+  if (usd > 0 && usd < 0.0001) return "<$0.0001";
   const main = `$${usd.toFixed(usd >= 100 ? 2 : 4).replace(/\.?0+$/, "") || "0"}`;
   return rate ? `${main}（约 ¥${(usd * rate).toFixed(2)}）` : main;
 }
@@ -453,10 +513,7 @@ export async function getGatewayOverview(limit = 10, forceBalance = false): Prom
     settings.outputPriceCnyPer1K > 0 ||
     settings.modelPriceRules.some((rule) => rule.enabled && (rule.inputPriceCnyPer1K > 0 || rule.outputPriceCnyPer1K > 0));
   const notices = [
-    balance.mode === "live"
-      ? "余额来自 TokenEZGO 的额度接口（按这个 API Key 统计）；下方本地账本只做估算和提醒。"
-      : "余额和真实账单以 TokenEZGO 页面为准，本地账本只做估算和提醒。",
-    priceConfigured ? "已配置本地估算单价，可显示预计花费和预算提醒。" : "尚未配置本地估算单价；会记录 token 粗估，但金额显示为 0。",
+    priceConfigured ? "已配置本地估算单价，预算提醒按这里的单价估算花费。" : "尚未配置估算单价，预算提醒按 0 元计算，不会拦截任务。",
   ];
   if (settings.monthlyBudgetCny > 0 && month.estimatedCostCny >= settings.monthlyBudgetCny) {
     notices.push("本地月度预算已达到或超过提醒线，新任务会被拦截，直到调高或清空月度预算。");
@@ -503,32 +560,14 @@ export async function getGatewayOverview(limit = 10, forceBalance = false): Prom
   };
 }
 
-export async function getGatewayCloudAccountStatus(): Promise<GatewayCloudAccountStatus> {
-  const balance = describeLiveBalance(await getGatewayLiveBalance());
-  return {
-    provider: "tokenezgo",
-    status: "external_only",
-    signedIn: false,
-    loginSupported: false,
-    accountLabel: "暂未接入 Xgent Hub 云账号",
-    balanceLabel: balance.mode === "live" ? `当前 Key：${balance.label}` : "请到 TokenEZGO 页面查看余额",
-    billingUrl: "https://tokenezgo.com",
-    reservedCapabilities: ["云端登录", "账户总余额", "充值订单", "Token 包消耗", "设备绑定", "异地访问授权"],
-    notes: [
-      "当前版本只做接口占位和产品边界预留。",
-      "本地开源客户端不会保存平台主 API Key；客户自己的 API Key 仍通过 TOKENEZGO_API_KEY 配置。",
-    ],
-  };
-}
-
 export async function getGatewayUsageSummaryText(): Promise<string | null> {
   const overview = await getGatewayOverview(1, true);
-  const lines = [
-    `余额：${overview.balanceLabel}${overview.balanceDetail ? `（${overview.balanceDetail}）` : ""}`,
-    `本月本地估算：¥${overview.month.estimatedCostCny} / ${overview.month.totalTokens} tokens / ${overview.month.recordCount} 次`,
-  ];
+  const live = overview.liveBalance;
+  const lines = [`余额：${overview.balanceLabel}`];
+  if (live?.ok && live.usedUsd !== null) lines.push(`已用：${usdText(live.usedUsd, live.cnyPerUsd)}`);
+  if (live?.ok && live.month) lines.push(`本月消费：${usdText(live.month.costUsd, live.cnyPerUsd)} / ${live.month.count} 次`);
+  if (!live?.ok) lines.push("账户余额和账单请到 TokenEZGO 查看");
   if (overview.settings.monthlyBudgetCny > 0) lines.push(`月度提醒预算：¥${overview.settings.monthlyBudgetCny}`);
   if (overview.settings.defaultTaskBudgetCny > 0) lines.push(`默认单任务预算：¥${overview.settings.defaultTaskBudgetCny}`);
-  if (!overview.priceTable[0]?.configured) lines.push("估算单价未配置，金额仅显示为 0。");
   return lines.join("\n");
 }
