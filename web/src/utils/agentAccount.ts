@@ -23,11 +23,12 @@ export function authModeLabel(account: AgentAccountInfo): string {
 }
 
 /**
- * 左边栏、标题里的名字：默认账号显示成「Codex（邮箱）」；
- * 另外添加的账号名字本身就是「Codex（账号名）」，不再重复加括号。
+ * 左边栏、标题里的名字：写了备注就是「Codex（备注）」；
+ * 没写的话默认账号显示成「Codex（邮箱）」，另外添加的账号名字本身就是「Codex（账号名）」，不再重复加括号。
  */
 export function agentDisplayName(agent: AgentDescriptor): string {
   const account = agent.account;
+  if (account?.note) return `${account.isDefault ? agent.name : agent.name.replace(/（[^（）]*）$/, "")}（${account.note}）`;
   // Antigravity 读不到账号时不代表没登录（登录在系统凭据里），就不加括号了。
   if (!account?.isDefault || (!account.supportsMultiple && !account.email)) return agent.name;
   return `${agent.name}（${accountLabel(account)}）`;

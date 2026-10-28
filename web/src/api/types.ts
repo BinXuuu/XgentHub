@@ -141,6 +141,8 @@ export interface AgentAccountInfo {
   apiKeyHint: string | null;
   /** 走中转站时的地址。 */
   baseUrl: string | null;
+  /** 自己写的备注，左边栏括号里优先显示它；空着就显示邮箱 / 账号名。 */
+  note?: string | null;
 }
 
 export type McpTransport = "stdio" | "http";

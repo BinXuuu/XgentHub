@@ -111,6 +111,8 @@ export const api = {
   deleteAgent: (agentId: string) => request<{ ok: boolean; home?: string }>(`/agents/${agentPath(agentId)}`, { method: "DELETE" }),
   createAgentAccount: (input: { kind: "codex" | "claude-code"; name?: string; copyConfig?: boolean }) =>
     request<AgentDescriptor>("/agents/accounts", { method: "POST", body: JSON.stringify(input) }),
+  setAgentAccountNote: (agentId: string, note: string) =>
+    request<AgentDescriptor>(`/agents/${agentPath(agentId)}/account-note`, { method: "PUT", body: JSON.stringify({ note }) }),
   renameAgentAccount: (agentId: string, name: string) =>
     request<AgentDescriptor>(`/agents/${agentPath(agentId)}/account`, { method: "PUT", body: JSON.stringify({ name }) }),
   agentAccountLogin: (agentId: string, input: { method: "browser" } | { method: "apikey"; apiKey: string; baseUrl?: string }) =>

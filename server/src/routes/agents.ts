@@ -7,6 +7,7 @@ import { getAgentConfig, updateAgentConfig } from "../services/agentConfigServic
 import { getAdapter, isProtectedAgent } from "../adapters/registry.ts";
 import { createCustomAgent, deleteCustomAgent, getCustomAgent, type CreateCustomAgentInput } from "../services/customAgentService.ts";
 import { hideAgent } from "../services/agentVisibilityService.ts";
+import { deleteAccountNote, setAccountNote } from "../services/accountNoteService.ts";
 import { diagnoseAgent } from "../services/agentDiagnosticsService.ts";
 import {
   clearAgentApiKey,
@@ -42,6 +43,13 @@ export function registerAgentRoutes(app: FastifyInstance) {
     const created = createAgentAccount(req.body ?? {});
     const adapter = getAdapter(created.id);
     if (!adapter) throw new Error("账号创建失败");
+    return toDescriptor(adapter);
+  });
+
+  app.put<{ Params: { id: string }; Body: { note?: string } }>("/api/agents/:id/account-note", { preHandler: requireAuth }, async (req, reply) => {
+    const adapter = getAdapter(req.params.id);
+    if (!adapter?.account) return reply.code(400).send({ error: "这个 Agent 没有账号，不能写备注" });
+    setAccountNote(req.params.id, String(req.body?.note ?? ""));
     return toDescriptor(adapter);
   });
 
@@ -115,6 +123,7 @@ export function registerAgentRoutes(app: FastifyInstance) {
     const custom = getCustomAgent(req.params.id);
     const accountHome = deleteAgentAccount(req.params.id);
     if (accountHome) {
+      deleteAccountNote(req.params.id);
       taskManager.invalidateOptions(req.params.id);
       return { ok: true, home: accountHome };
     }

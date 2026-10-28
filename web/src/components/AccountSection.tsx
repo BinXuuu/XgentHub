@@ -167,6 +167,20 @@ export function AccountSection({ agent, onAgentsChanged, onAgentCreated, onLogin
     });
   }
 
+  async function editNote() {
+    const note = await promptDialog("只在 Xgent 里显示：左边栏括号里会显示它。清空就恢复显示邮箱 / 账号名。", {
+      title: "备注",
+      defaultValue: account.note ?? "",
+      confirmText: "保存",
+      singleLine: true,
+    });
+    if (note === null || note === undefined || note.trim() === (account.note ?? "")) return;
+    await run("note", async () => {
+      await api.setAgentAccountNote(agent.id, note.trim());
+      await onAgentsChanged();
+    });
+  }
+
   async function addAccount() {
     if (kind !== "codex" && kind !== "claude-code") return;
     const copied = kind === "codex" ? "config.toml：MCP、默认模型等" : "settings.json：权限、hooks 等";
@@ -243,6 +257,13 @@ export function AccountSection({ agent, onAgentsChanged, onAgentCreated, onLogin
             </strong>
           </>
         )}
+        <span>备注</span>
+        <strong>
+          {account.note || <em className="meta">未填写，左边栏显示{account.isDefault ? "邮箱" : "名字"}</em>}
+          <button className="btn btn-ghost btn-sm" onClick={() => void editNote()} disabled={Boolean(busy)}>
+            {account.note ? "修改" : "添加"}
+          </button>
+        </strong>
         <span>账号目录</span>
         <strong className="codex-account-home">
           <span className="codex-account-path" title={account.home}>

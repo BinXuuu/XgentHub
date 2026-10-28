@@ -19,6 +19,7 @@ import { getCodexAccount, listCodexAccounts } from "../services/codexAccountServ
 import { getClaudeAccount, listClaudeAccounts } from "../services/claudeAccountService.ts";
 import { getRole, listRoles, roleIdFromAgentId } from "../services/roleService.ts";
 import { RoleAdapter } from "./role.ts";
+import { getAccountNote } from "../services/accountNoteService.ts";
 
 const AGENT_META: Record<string, Partial<AgentDescriptor>> = {
   tokenezgo: {
@@ -140,6 +141,6 @@ export function toDescriptor(a: AgentAdapter): AgentDescriptor {
     role: a.roleInfo ?? null,
     // 能不能停按 Agent 实际有没有实现 stop() 算，不靠手写的静态表（以前 Codex / Claude Code 明明能停，表里却写着不能）。
     runtime: { ...getRuntimeProfile(a.kind), supportsStop: Boolean(a.stop) },
-    account: a.account?.() ?? null,
+    account: a.account ? { ...a.account(), note: getAccountNote(id) } : null,
   };
 }
