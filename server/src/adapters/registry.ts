@@ -3,6 +3,7 @@ import { MockAdapter } from "./mock.ts";
 import { OpenClawAdapter } from "./openclaw.ts";
 import { CodexAdapter } from "./codex.ts";
 import { ClaudeCodeAdapter } from "./claudeCode.ts";
+import { CodeBuddyAdapter } from "./codeBuddy.ts";
 import { AntigravityAdapter } from "./antigravity.ts";
 import { ArkCliAdapter } from "./arkCli.ts";
 import { HermesAdapter } from "./hermes.ts";
@@ -38,6 +39,7 @@ const adapters: AgentAdapter[] = [
   new TokenEzgoAdapter(),
   new CodexAdapter(),
   new ClaudeCodeAdapter(),
+  new CodeBuddyAdapter(),
   new AntigravityAdapter(),
   new ArkCliAdapter(),
   new OpenClawAdapter(),

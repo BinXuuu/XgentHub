@@ -54,6 +54,12 @@ export const config = {
     // --verbose 是必须的：claude CLI 在 --print + --output-format=stream-json 时如果不带 --verbose 会直接报错拒绝执行
     args: (process.env.CLAUDE_CODE_ARGS ?? "--print --output-format stream-json --verbose").split(" ").filter(Boolean),
   },
+  codebuddy: {
+    bin: process.env.CODEBUDDY_BIN ?? "codebuddy",
+    // 跟 Claude Code 一样：--print + stream-json 时要带 --verbose 才会逐条输出事件
+    args: (process.env.CODEBUDDY_ARGS ?? "--print --output-format stream-json --verbose").split(" ").filter(Boolean),
+    defaultModel: process.env.CODEBUDDY_MODEL ?? "",
+  },
   antigravity: {
     bin: process.env.ANTIGRAVITY_BIN ?? "agy",
     defaultModel: process.env.ANTIGRAVITY_MODEL ?? "",

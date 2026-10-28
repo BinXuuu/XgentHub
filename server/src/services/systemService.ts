@@ -262,6 +262,7 @@ export async function getMachineConfigDiscovery(): Promise<MachineConfigDiscover
   const claudeCode = discoverClaudeCode();
   const antigravity = discoverCommand("agy", [process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "agy", "bin", "agy.exe") : ""]);
   const arkCli = discoverCommand("arkcli");
+  const codeBuddy = discoverCommand("codebuddy");
 
   const items: MachineConfigDiscoveryItem[] = [
     makeItem({
@@ -293,6 +294,16 @@ export async function getMachineConfigDiscovery(): Promise<MachineConfigDiscover
       discoveredValue: claudeCode?.value,
       source: claudeCode?.source,
       defaults: ["claude"],
+    }),
+    makeItem({
+      id: "codebuddy-bin",
+      agentId: "codebuddy",
+      label: "CodeBuddy CLI",
+      envKey: "CODEBUDDY_BIN",
+      currentValue: envMap.CODEBUDDY_BIN ?? config.codebuddy.bin,
+      discoveredValue: codeBuddy?.value,
+      source: codeBuddy?.source,
+      defaults: ["codebuddy"],
     }),
     makeItem({
       id: "antigravity-bin",

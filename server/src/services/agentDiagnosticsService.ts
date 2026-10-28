@@ -190,6 +190,28 @@ function buildSetupStepsRaw(
           command("复制用量命令", "claude -p /usage --output-format json"),
         ]),
       ];
+    case "codebuddy":
+      return [
+        step(
+          "安装 CodeBuddy CLI",
+          statusOf(checks, "CodeBuddy CLI"),
+          "WorkBuddy 桌面版自带的命令行是精简版，没法单独登录，需要另装腾讯官方的 CodeBuddy Code（在 PowerShell 里运行下面的命令）。",
+          [
+            command("复制安装命令", "npm i -g @tencent-ai/codebuddy-code", "腾讯 CodeBuddy Code 官方 npm 包。"),
+            url("打开 CodeBuddy Code 文档", "https://www.codebuddy.ai/docs/cli"),
+            field("定位 CLI 路径", "CODEBUDDY_BIN"),
+          ]
+        ),
+        step(
+          "用 WorkBuddy 账号登录",
+          statusOf(checks, "登录"),
+          "在 PowerShell 运行 codebuddy，第一次会问是否信任当前文件夹，选 1；进去后输入 /login，用跟 WorkBuddy 同一个账号登录。登录完回来点「重新探测」。",
+          [command("复制启动命令", "codebuddy")]
+        ),
+        step("选择模型", modelCount > 0 ? "ok" : "warn", `当前检测到 ${modelCount} 个模型（来自 codebuddy --help）。`, [
+          field("定位默认模型", "CODEBUDDY_MODEL"),
+        ]),
+      ];
     case "antigravity":
       return [
         step(
@@ -595,6 +617,17 @@ async function diagnoseBuiltin(
       addCheck(checks, "Headless 参数", "ok", config.claudeCode.args.join(" "));
       break;
     }
+    case "codebuddy": {
+      if (!checkCli(checks, "CodeBuddy CLI", config.codebuddy.bin, { preferCmdShim: true })) {
+        nextSteps.push("安装 CodeBuddy Code：在 PowerShell 运行 npm i -g @tencent-ai/codebuddy-code，或在配置里填写 CODEBUDDY_BIN 的完整路径。");
+        return true;
+      }
+      // 登录信息加密存放，没法不花额度地提前确认；没登录的话第一次跑任务就会提示怎么登录。
+      addCheck(checks, "登录", "ok", "用 WorkBuddy 账号在终端运行 codebuddy 后 /login 一次即可；没登录时任务会直接提示。");
+      if (config.codebuddy.defaultModel) addCheck(checks, "默认模型", "ok", config.codebuddy.defaultModel);
+      addCheck(checks, "Headless 参数", "ok", config.codebuddy.args.join(" "));
+      break;
+    }
     case "antigravity": {
       if (!checkCli(checks, "Antigravity CLI", config.antigravity.bin)) {
         nextSteps.push("安装 Antigravity CLI：在 PowerShell 运行 irm https://antigravity.google/cli/install.ps1 | iex，或在配置里填写 agy.exe 的完整路径。");
@@ -709,7 +742,7 @@ export async function diagnoseAgent(agentId: string): Promise<AgentDiagnostics> 
   const isClaude = Boolean(claudeHomeForAgent(agentId));
   const builtinKey = codexHome ? "codex" : isClaude ? "claude-code" : agentId;
   const accountHome = codexHome ?? getClaudeAccount(agentId)?.home ?? null;
-  const cliKinds = new Set(["codex", "claude-code", "antigravity", "ark-cli", "openclaw"]);
+  const cliKinds = new Set(["codex", "claude-code", "codebuddy", "antigravity", "ark-cli", "openclaw"]);
   addCheck(
     checks,
     "Agent 配置",

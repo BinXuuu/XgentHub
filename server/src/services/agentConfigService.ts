@@ -130,6 +130,40 @@ const schemas: Record<string, FieldDefinition[]> = {
       },
     },
   ],
+  codebuddy: [
+    {
+      key: "CODEBUDDY_BIN",
+      label: "CodeBuddy CLI",
+      type: "text",
+      placeholder: "codebuddy",
+      help: "腾讯 CodeBuddy Code 命令行（npm i -g @tencent-ai/codebuddy-code）。不在 PATH 里就填完整路径。",
+      get: () => config.codebuddy.bin,
+      apply: (value) => {
+        config.codebuddy.bin = value || "codebuddy";
+      },
+    },
+    {
+      key: "CODEBUDDY_MODEL",
+      label: "默认模型",
+      type: "text",
+      placeholder: "留空用账号默认模型",
+      help: "可填 fast-model / balanced-model / primary-model / deep-model，或具体模型 ID（见下方模型列表）。",
+      get: () => config.codebuddy.defaultModel,
+      apply: (value) => {
+        config.codebuddy.defaultModel = value;
+      },
+    },
+    {
+      key: "CODEBUDDY_ARGS",
+      label: "CLI 参数",
+      type: "text",
+      placeholder: "--print --output-format stream-json --verbose",
+      get: () => config.codebuddy.args.join(" "),
+      apply: (value) => {
+        config.codebuddy.args = (value || "--print --output-format stream-json --verbose").split(" ").filter(Boolean);
+      },
+    },
+  ],
   antigravity: [
     {
       key: "ANTIGRAVITY_BIN",

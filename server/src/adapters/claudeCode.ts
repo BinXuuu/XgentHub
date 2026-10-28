@@ -30,6 +30,48 @@ const CLAUDE_CODE_MODEL_OPTIONS: ModelOption[] = [
 
 const runningClaudeCodeProcesses = new Map<string, { child: ChildProcess; kill: (reason: string) => void }>();
 
+/**
+ * 跟 Claude Code 同一套 headless 协议（-p / stream-json / --resume / control_request）的命令行。
+ * CodeBuddy Code（WorkBuddy 同账号）就是照着 Claude Code 做的，任务派发、审批、一次性问答都共用这里的实现。
+ */
+export interface StreamJsonCli {
+  /** 给用户看的名字，例如 "Claude Code"、"CodeBuddy"。 */
+  label: string;
+  bin: string;
+  baseArgs: string[];
+  env?: NodeJS.ProcessEnv;
+  /** Claude Code 要显式加 --permission-prompt-tool stdio 才会把权限询问发到 stdout。 */
+  permissionPromptFlag: boolean;
+  /**
+   * 权限答复的格式：Claude Code 认 { behavior: "allow" | "deny" }，CodeBuddy 认 { allowed: boolean, reason }
+   * （CodeBuddy 收到 behavior 格式会一律当成拒绝，2026-10-27 对着真 codebuddy 2.177.0 实测）。
+   */
+  permissionAnswerStyle: "claude" | "codebuddy";
+  /** CLI 没登录时回的那句话（匹配到就换成 loginHint，这一轮记为失败）。 */
+  notLoggedInPattern?: RegExp;
+  loginHint?: string;
+  /** 找不到可执行文件时的提示。 */
+  missingBinaryHint: string;
+  /** 用 npm 的 .cmd 启动而不是 .ps1：npm 生成的 PowerShell 启动脚本不转发 stdin，prompt 送不进去会一直卡着。 */
+  preferCmdShim?: boolean;
+  /** 任务没选模型时用的模型（配置页里填的默认模型）。 */
+  defaultModel?: string;
+}
+
+function claudeCli(env: NodeJS.ProcessEnv | undefined): StreamJsonCli {
+  return {
+    label: "Claude Code",
+    bin: config.claudeCode.bin,
+    baseArgs: config.claudeCode.args,
+    env,
+    permissionPromptFlag: true,
+    permissionAnswerStyle: "claude",
+    missingBinaryHint:
+      `Claude Code adapter 尚未接通：未在本机 PATH 中找到 "${config.claudeCode.bin}"。\n` +
+      `安装 Claude Code CLI 并设置 CLAUDE_CODE_BIN 后即可使用 headless 模式驱动任务。`,
+  };
+}
+
 // Claude Code adapter：通过本机 `claude` CLI 的 headless 模式（-p/--print，
 // --output-format stream-json）驱动任务，逐行解析 JSONL 事件流。
 // 参数（-p/--output-format/--model/-r/--allow-dangerously-skip-permissions）已经对照
@@ -176,8 +218,17 @@ function additionalWorkspaceDirs(ctx: TaskRuntimeContext): string[] {
 // `assistant` 事件里已经带了完整的文本块，最后的 `result` 事件对纯文本回复来说
 // 只是把同样的内容再吐一遍——两个都转发会导致 Chat 里同一句话出现两次，
 // 所以每次 dispatch 都开一个新的 handler，记住这一轮有没有已经转发过文本。
-function createLineHandler(ctx: TaskRuntimeContext) {
+function createLineHandler(ctx: TaskRuntimeContext, cli: StreamJsonCli, state: { notLoggedIn: boolean }) {
   let sawAssistantText = false;
+  const say = (text: string) => {
+    if (cli.notLoggedInPattern?.test(text)) {
+      if (state.notLoggedIn) return;
+      state.notLoggedIn = true;
+      ctx.agentMessage(cli.loginHint ?? text);
+      return;
+    }
+    ctx.agentMessage(text);
+  };
   return function forwardStreamJsonLine(line: string) {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -192,23 +243,23 @@ function createLineHandler(ctx: TaskRuntimeContext) {
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block?.type === "text" && block.text) {
-              ctx.agentMessage(block.text);
+              say(block.text);
               sawAssistantText = true;
             } else if (block?.type === "tool_use") {
               ctx.terminal(`$ [tool_use] ${block.name} ${JSON.stringify(block.input ?? {})}\n`);
             }
           }
         } else if (typeof content === "string") {
-          ctx.agentMessage(content);
+          say(content);
           sawAssistantText = true;
         }
       } else if (type === "result") {
         // 只有前面没拿到过任何文本块时才用 result 兜底，避免重复
-        if (!sawAssistantText && typeof evt.result === "string") ctx.agentMessage(evt.result);
+        if (!sawAssistantText && typeof evt.result === "string") say(evt.result);
       } else if (type === "tool_result" || type === "tool_use_result") {
         ctx.terminal(`${typeof evt.output === "string" ? evt.output : JSON.stringify(evt.output ?? evt)}\n`);
       } else {
-        ctx.log(`[claude] ${trimmed.slice(0, 500)}`);
+        ctx.log(`[${cli.label}] ${trimmed.slice(0, 500)}`);
       }
     } catch {
       ctx.terminal(line + "\n");
@@ -250,7 +301,7 @@ function runUsageCommand(env: NodeJS.ProcessEnv | undefined): Promise<string | n
 
 // 一次性问答用：同样走 claude -p "<prompt>" --output-format json，不计入真实对话 session，不绑定 Task。
 // 失败（启动不了、超时、退出码非 0、返回报错）直接抛出带原因的错误，聊天据此显示"失败"而不是"没有返回内容"。
-function runAskCommand(prompt: string, model: string | null | undefined, mcpServers: McpServerSpec[] | undefined, env: NodeJS.ProcessEnv | undefined): Promise<string | null> {
+export function runAskCommand(prompt: string, model: string | null | undefined, mcpServers: McpServerSpec[] | undefined, cli: StreamJsonCli): Promise<string | null> {
   return new Promise((resolve, reject) => {
     let child;
     // ask() 没有 Task 那套审批队列，MCP 工具调用要能真的跑起来就只能跳过权限确认——
@@ -264,10 +315,10 @@ function runAskCommand(prompt: string, model: string | null | undefined, mcpServ
         mcpConfigPath = writeTempMcpConfigFile(`ask-${Date.now()}`, mcpServers);
         args.push("--mcp-config", mcpConfigPath, "--dangerously-skip-permissions");
       }
-      child = spawnCli(config.claudeCode.bin, args, { env });
+      child = spawnCli(cli.bin, args, { env: cli.env, preferCmdShim: cli.preferCmdShim });
     } catch (err) {
       cleanupTempMcpConfigFile(mcpConfigPath);
-      reject(new Error(`启动 Claude Code 失败：${(err as Error).message}`));
+      reject(new Error(`启动 ${cli.label} 失败：${(err as Error).message}`));
       return;
     }
     child.stdin?.end();
@@ -283,12 +334,12 @@ function runAskCommand(prompt: string, model: string | null | undefined, mcpServ
     };
     child.stdout?.on("data", (d) => (stdout += d.toString("utf8")));
     child.stderr?.on("data", (d) => (stderr += d.toString("utf8")));
-    child.on("error", (err) => finish(() => reject(new Error(`启动 Claude Code 失败：${err.message}`))));
+    child.on("error", (err) => finish(() => reject(new Error(`启动 ${cli.label} 失败：${err.message}`))));
     // 带 MCP 工具调用的一次性问答比纯文本慢得多（工具本身的启动/调用耗时），给够余量。
     const timeoutMs = ASK_TIMEOUT_MS;
     const timeout = setTimeout(() => {
       child.kill();
-      finish(() => reject(new Error(`Claude Code ${timeoutMs / 1000} 秒内没有回复，已超时`)));
+      finish(() => reject(new Error(`${cli.label} ${timeoutMs / 1000} 秒内没有回复，已超时`)));
     }, timeoutMs);
     child.on("close", (code) => {
       finish(() => {
@@ -298,8 +349,11 @@ function runAskCommand(prompt: string, model: string | null | undefined, mcpServ
         } catch {
           // 不是 JSON：多半是启动阶段就报错了，下面用 stderr/stdout 拼原因
         }
+        // CodeBuddy 的 json 输出是整段消息数组，最后一条 type=result 才是 Claude Code 那种单个结果对象。
+        if (Array.isArray(parsed)) parsed = parsed.findLast((item: any) => item?.type === "result") ?? null;
         if (parsed && parsed.is_error) {
-          reject(new Error(typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim() : "Claude Code 返回了错误"));
+          const message = typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim() : `${cli.label} 返回了错误`;
+          reject(new Error(cli.notLoggedInPattern?.test(message) && cli.loginHint ? cli.loginHint : message));
           return;
         }
         if (parsed && typeof parsed.result === "string") {
@@ -307,10 +361,15 @@ function runAskCommand(prompt: string, model: string | null | undefined, mcpServ
           return;
         }
         const detail = (stderr || stdout).trim().slice(-500);
-        reject(new Error(detail ? `Claude Code 调用失败（退出码 ${code}）：${detail}` : `Claude Code 调用失败（退出码 ${code}），没有输出`));
+        reject(new Error(detail ? `${cli.label} 调用失败（退出码 ${code}）：${detail}` : `${cli.label} 调用失败（退出码 ${code}），没有输出`));
       });
     });
   });
+}
+
+function permissionAnswer(cli: StreamJsonCli, allowed: boolean, input: Record<string, unknown>, denyMessage: string): Record<string, unknown> {
+  if (cli.permissionAnswerStyle === "codebuddy") return allowed ? { allowed: true, updatedInput: input } : { allowed: false, reason: denyMessage };
+  return allowed ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: denyMessage };
 }
 
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
@@ -325,7 +384,7 @@ interface CanUseToolRequest {
 }
 
 /** 把 Claude Code 的一次权限询问翻译成审批页里能看懂的一条：要做什么、为什么问、风险多大。 */
-export function describeToolPermission(request: CanUseToolRequest): { command: string; reason: string; riskLevel: RiskLevel } {
+export function describeToolPermission(request: CanUseToolRequest, cliLabel = "Claude Code"): { command: string; reason: string; riskLevel: RiskLevel } {
   const tool = request.tool_name ?? "未知工具";
   const label = request.display_name || tool;
   const input = request.input ?? {};
@@ -345,18 +404,18 @@ export function describeToolPermission(request: CanUseToolRequest): { command: s
     .join("；");
   return {
     command,
-    reason: `Claude Code 请求使用 ${label}${detail ? `：${detail}` : ""}`,
+    reason: `${cliLabel} 请求使用 ${label}${detail ? `：${detail}` : ""}`,
     riskLevel: risk?.riskLevel ?? (SHELL_TOOLS.has(tool) || EDIT_TOOLS.has(tool) ? "medium" : "low"),
   };
 }
 
-async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null, env: NodeJS.ProcessEnv | undefined): Promise<void> {
+export async function dispatchStreamJson(ctx: TaskRuntimeContext, input: TurnInput, resumeSessionId: string | null, cli: StreamJsonCli): Promise<void> {
   const text = input.text;
   const prompt = buildWorkspacePrompt(ctx.workspacePath, text, ctx.workspacePrompt, ctx.workspaceKnowledge, input.images, ctx.workspaceAccessPaths);
-  if (input.images.length) ctx.log(`Claude Code adapter 暂不支持原生图片附件，已把 ${input.images.length} 张图片路径写入提示词作为兜底`);
+  if (input.images.length) ctx.log(`${cli.label} 暂不支持原生图片附件，已把 ${input.images.length} 张图片路径写入提示词作为兜底`);
   const risk = scanRisk(text);
   if (risk && shouldGate(risk.riskLevel, ctx.permissionMode)) {
-    ctx.log(`检测到潜在高风险内容（${risk.reason}），先进入审批队列再派发给 Claude Code`);
+    ctx.log(`检测到潜在高风险内容（${risk.reason}），先进入审批队列再派发给 ${cli.label}`);
     const decision = await ctx.requestApproval({
       command: text,
       cwd: ctx.workspacePath,
@@ -364,26 +423,27 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
       reason: risk.reason,
     });
     if (decision.decision === "deny") {
-      ctx.agentMessage(`已取消派发给 Claude Code（原因：${decision.note ?? "用户拒绝"}）。`);
+      ctx.agentMessage(`已取消派发给 ${cli.label}（原因：${decision.note ?? "用户拒绝"}）。`);
       ctx.setStatus("review");
       return;
     }
   }
 
-  const args = [...config.claudeCode.args];
+  const args = [...cli.baseArgs];
   const extraDirs = additionalWorkspaceDirs(ctx);
   if (extraDirs.length) {
     args.push("--add-dir", ...extraDirs);
     ctx.log(`额外允许目录: ${extraDirs.join(", ")}`);
   }
   if (resumeSessionId) args.push("--resume", resumeSessionId);
-  if (ctx.model) args.push("--model", ctx.model);
+  const model = ctx.model || cli.defaultModel;
+  if (model) args.push("--model", model);
   // full 权限对应 claude CLI 真实的跳过权限模式。--allow-dangerously-skip-permissions 只是在交互 UI 里允许选择，
   // headless 模式需要直接启用 --dangerously-skip-permissions，否则仍会被 Claude Code 自己的目录/工具策略拦截。
   if (ctx.planMode) {
     // 实测 -p 下 plan 模式不会改工作区文件，只输出计划（会在 ~/.claude/plans 留一份计划文件）；这一轮不能叠加跳过权限。
     args.push("--permission-mode", "plan");
-    ctx.log("计划模式：Claude Code 以 --permission-mode plan 运行，这一轮不会改文件");
+    ctx.log(`计划模式：${cli.label} 以 --permission-mode plan 运行，这一轮不会改文件`);
   } else if (ctx.permissionMode === "full") {
     args.push("--dangerously-skip-permissions");
   } else if (ctx.permissionMode === "auto") {
@@ -395,8 +455,8 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
   const interactivePermissions = !ctx.planMode && ctx.permissionMode !== "full" && args.join(" ").includes("stream-json");
   if (interactivePermissions) {
     if (!args.includes("--input-format")) args.push("--input-format", "stream-json");
-    args.push("--permission-prompt-tool", "stdio");
-    ctx.log("权限确认：Claude Code 需要授权的操作会进审批页等你批准");
+    if (cli.permissionPromptFlag) args.push("--permission-prompt-tool", "stdio");
+    ctx.log(`权限确认：${cli.label} 需要授权的操作会进审批页等你批准`);
   }
   let mcpConfigPath: string | null = null;
   if (ctx.mcpServers.length) {
@@ -404,15 +464,16 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
     args.push("--mcp-config", mcpConfigPath);
     ctx.log(`已挂载 MCP: ${ctx.mcpServers.map((s) => s.name).join(", ")}`);
   }
-  ctx.terminal(`$ ${config.claudeCode.bin} ${args.join(" ")} < stdin\n`);
+  ctx.terminal(`$ ${cli.bin} ${args.join(" ")} < stdin\n`);
   ctx.setStatus("running");
 
   await new Promise<void>((resolve) => {
-    const child = spawnCli(config.claudeCode.bin, args, { cwd: ctx.workspacePath, env });
+    const child = spawnCli(cli.bin, args, { cwd: ctx.workspacePath, env: cli.env, preferCmdShim: cli.preferCmdShim });
     // 交互权限模式下 stdin 要一直开着（权限答复从这里送回去），等 result 出来再关。
     if (interactivePermissions) child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`);
     else child.stdin!.end(prompt);
-    const forwardStreamJsonLine = createLineHandler(ctx);
+    const runState = { notLoggedIn: false };
+    const forwardStreamJsonLine = createLineHandler(ctx, cli, runState);
     let processClosed = false;
     let waitingApprovals = 0;
 
@@ -422,7 +483,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
     };
 
     const answerPermission = async (requestId: string, request: CanUseToolRequest) => {
-      const { command, reason, riskLevel } = describeToolPermission(request);
+      const { command, reason, riskLevel } = describeToolPermission(request, cli.label);
       ctx.log(`${reason}，等待审批：${command}`);
       waitingApprovals += 1;
       let decision: Awaited<ReturnType<TaskRuntimeContext["requestApproval"]>>;
@@ -439,9 +500,7 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
         response: {
           subtype: "success",
           request_id: requestId,
-          response: allowed
-            ? { behavior: "allow", updatedInput: request.input ?? {} }
-            : { behavior: "deny", message: decision.note ? `用户在 AgentHub 拒绝了这一步：${decision.note}` : "用户在 AgentHub 拒绝了这一步" },
+          response: permissionAnswer(cli, allowed, request.input ?? {}, decision.note ? `用户在 AgentHub 拒绝了这一步：${decision.note}` : "用户在 AgentHub 拒绝了这一步"),
         },
       });
       if (waitingApprovals === 0) ctx.setStatus("running");
@@ -507,12 +566,9 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
       cleanupRunningProcess();
       cleanupTempMcpConfigFile(mcpConfigPath);
       if (isMissingBinaryError(err)) {
-        ctx.agentMessage(
-          `Claude Code adapter 尚未接通：未在本机 PATH 中找到 "${config.claudeCode.bin}"。\n` +
-            `安装 Claude Code CLI 并设置 CLAUDE_CODE_BIN 后即可使用 headless 模式驱动任务。`
-        );
+        ctx.agentMessage(cli.missingBinaryHint);
       } else {
-        ctx.agentMessage(`调用 Claude Code 失败：${err.message}`);
+        ctx.agentMessage(`调用 ${cli.label} 失败：${err.message}`);
       }
       ctx.setStatus("failed");
       resolve();
@@ -523,17 +579,19 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
       cleanupRunningProcess();
       cleanupTempMcpConfigFile(mcpConfigPath);
       // 进程没了，还在等的审批答复也送不回去了，别在审批页留着没用的按钮。
-      if (waitingApprovals > 0) ctx.cancelPendingApprovals?.("Claude Code 已经结束，这条审批自动取消");
+      if (waitingApprovals > 0) ctx.cancelPendingApprovals?.(`${cli.label} 已经结束，这条审批自动取消`);
       if (stoppedReason) {
-        ctx.log(`claude 进程已停止：${stoppedReason}`);
+        ctx.log(`${cli.label} 进程已停止：${stoppedReason}`);
         resolve();
         return;
       }
       if (buffer.trim()) handleLine(buffer);
       if (stderr.trim()) ctx.terminal(stderr);
-      if (code !== 0) {
-        ctx.log(`claude 进程退出码 ${code}`);
-        if (!sawOutput) ctx.agentMessage(`Claude Code 调用失败（exit code ${code}）：\n${stderr.trim()}`);
+      if (runState.notLoggedIn) {
+        ctx.setStatus("failed");
+      } else if (code !== 0) {
+        ctx.log(`${cli.label} 进程退出码 ${code}`);
+        if (!sawOutput) ctx.agentMessage(`${cli.label} 调用失败（exit code ${code}）：\n${stderr.trim()}`);
         ctx.setStatus("failed");
       } else {
         ctx.setStatus("review");
@@ -541,6 +599,15 @@ async function dispatch(ctx: TaskRuntimeContext, input: TurnInput, resumeSession
       resolve();
     });
   });
+}
+
+export function stopStreamJsonRun(ctx: TaskRuntimeContext, label: string): void {
+  const running = runningClaudeCodeProcesses.get(runtimeKeyOf(ctx));
+  if (running) {
+    ctx.log(`正在终止 ${label} 进程树...`);
+    running.kill("用户停止");
+  }
+  ctx.setStatus("stopped");
 }
 
 /** 另外添加的 Claude Code 账号；不传就是默认账号（~/.claude，内置的 "claude-code"）。 */
@@ -629,7 +696,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       return;
     }
     ctx.setSessionKey(`claude-code-${runtimeKeyOf(ctx)}`);
-    await dispatch(ctx, input, null, this.env());
+    await dispatchStreamJson(ctx, input, null, claudeCli(this.env()));
   }
 
   async continueTask(ctx: TaskRuntimeContext, input: TurnInput): Promise<void> {
@@ -639,21 +706,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       ctx.setStatus("failed");
       return;
     }
-    await dispatch(ctx, input, ctx.sessionKey, this.env());
+    await dispatchStreamJson(ctx, input, ctx.sessionKey, claudeCli(this.env()));
   }
 
   async ask(prompt: string, options?: { model?: string | null; mcpServers?: McpServerSpec[] }): Promise<string | null> {
     const notLoggedIn = this.notLoggedInMessage();
     if (notLoggedIn) throw new Error(notLoggedIn);
-    return runAskCommand(prompt, options?.model, options?.mcpServers, this.env());
+    return runAskCommand(prompt, options?.model, options?.mcpServers, claudeCli(this.env()));
   }
 
   async stop(ctx: TaskRuntimeContext): Promise<void> {
-    const running = runningClaudeCodeProcesses.get(runtimeKeyOf(ctx));
-    if (running) {
-      ctx.log("正在终止 Claude Code 进程树...");
-      running.kill("用户停止");
-    }
-    ctx.setStatus("stopped");
+    stopStreamJsonRun(ctx, "Claude Code");
   }
 }

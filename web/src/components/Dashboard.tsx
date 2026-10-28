@@ -28,6 +28,7 @@ const AGENT_KIND_COLORS: Record<string, string> = {
   openclaw: "#f59e0b",
   codex: "#4f8cff",
   "claude-code": "#a78bfa",
+  codebuddy: "#6366f1",
   antigravity: "#f43f5e",
   "ark-cli": "#0ea5e9",
   hermes: "#22c55e",

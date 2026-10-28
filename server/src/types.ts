@@ -5,6 +5,7 @@ export type AgentKind =
   | "openclaw"
   | "codex"
   | "claude-code"
+  | "codebuddy"
   | "antigravity"
   | "ark-cli"
   | "hermes"

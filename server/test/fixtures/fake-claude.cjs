@@ -12,7 +12,8 @@ if (process.env.FAKE_CLAUDE_ENV_FILE) {
   const pick = ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
   fs.appendFileSync(process.env.FAKE_CLAUDE_ENV_FILE, JSON.stringify(Object.fromEntries(pick.map((key) => [key, process.env[key] ?? null]))) + "\n");
 }
-const interactive = args.includes("--permission-prompt-tool");
+// CodeBuddy 不带 --permission-prompt-tool，只要是 stream-json 输入就会在 stdout 发权限询问（FAKE_CLI_ASK_ON_STREAM_INPUT=1 模拟它）。
+const interactive = args.includes("--permission-prompt-tool") || (process.env.FAKE_CLI_ASK_ON_STREAM_INPUT === "1" && args.includes("--input-format"));
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
 const REQUEST_ID = "req-1";
 const TOOL_INPUT = { command: "mkdir out-dir", description: "Create out-dir directory" };
@@ -26,6 +27,17 @@ function runTool() {
   fs.mkdirSync(path.join(process.cwd(), "out-dir"), { recursive: true });
   fs.writeFileSync(path.join(process.cwd(), "out-dir", "result.txt"), "hello\n");
   finish("已建好 out-dir");
+}
+
+// 模拟没登录的 CodeBuddy：一上来就回这句话并以错误结束。
+if (process.env.FAKE_CLI_NOT_LOGGED_IN === "1") {
+  const text = "Authentication required. Please use /login command to sign in to your account";
+  if (args.includes("json") && !args.includes("stream-json")) process.stdout.write(JSON.stringify([{ type: "message", role: "user" }, { type: "result", subtype: "error_during_execution", is_error: true, result: text }]));
+  else {
+    out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+    out({ type: "result", subtype: "error_during_execution", is_error: true, result: text, session_id: "fake-session" });
+  }
+  process.exit(0);
 }
 
 let buffer = "";
@@ -58,8 +70,10 @@ process.stdin.on("data", (chunk) => {
       });
     } else if (msg.type === "control_response" && msg.response?.request_id === REQUEST_ID) {
       const answer = msg.response.response;
-      if (answer.behavior === "allow") runTool();
-      else finish(`被拒绝了：${answer.message}`);
+      // FAKE_CLI_ANSWER_STYLE=codebuddy：只认 CodeBuddy 的 { allowed, reason }，收到 Claude 格式一律当拒绝（真 codebuddy 就是这样）。
+      const allowed = process.env.FAKE_CLI_ANSWER_STYLE === "codebuddy" ? answer.allowed === true : answer.behavior === "allow";
+      if (allowed) runTool();
+      else finish(`被拒绝了：${(process.env.FAKE_CLI_ANSWER_STYLE === "codebuddy" ? answer.reason : answer.message) ?? "Permission denied by SDK"}`);
     }
   }
 });
