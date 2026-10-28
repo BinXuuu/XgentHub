@@ -38,7 +38,8 @@ export const CLI_ACCOUNT_KINDS: AgentDescriptor["kind"][] = ["codebuddy", "deeps
  */
 export function agentDisplayName(agent: AgentDescriptor): string {
   const account = agent.account;
-  if (account?.note) return `${account.isDefault ? agent.name : agent.name.replace(/（[^（）]*）$/, "")}（${account.note}）`;
+  // 名字自带括号的（另外添加的账号「Codex（工作号）」、默认的「WorkBuddy（CodeBuddy）」）先去掉，不然会叠成两层括号。
+  if (account?.note) return `${agent.name.replace(/（[^（）]*）$/, "")}（${account.note}）`;
   // Antigravity 读不到账号时不代表没登录（登录在系统凭据里），就不加括号了。
   // WorkBuddy / DeepSeek / 火山方舟的登录信息里读不到邮箱，默认账号也不加括号。
   if (!account?.isDefault || (!account.supportsMultiple && !account.email)) return agent.name;
