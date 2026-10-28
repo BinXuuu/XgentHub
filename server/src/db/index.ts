@@ -576,7 +576,7 @@ SELECT
   agent_id,
   '',
   CASE
-    WHEN agent_kind IN ('codex', 'claude-code', 'codebuddy', 'openclaw', 'antigravity', 'ark-cli', 'custom-cli') THEN 'cli'
+    WHEN agent_kind IN ('codex', 'claude-code', 'codebuddy', 'deepseek-harness', 'openclaw', 'antigravity', 'ark-cli', 'custom-cli') THEN 'cli'
     WHEN agent_kind IN ('tokenezgo', 'doubao', 'hermes', 'custom-api') THEN 'api'
     WHEN agent_kind = 'ollama' THEN 'local'
     WHEN agent_kind = 'mock' THEN 'mock'
@@ -631,7 +631,7 @@ SELECT
   agent_id,
   agent_kind,
   CASE
-    WHEN agent_kind IN ('codex', 'claude-code', 'codebuddy', 'openclaw', 'antigravity', 'ark-cli', 'custom-cli') THEN 'cli'
+    WHEN agent_kind IN ('codex', 'claude-code', 'codebuddy', 'deepseek-harness', 'openclaw', 'antigravity', 'ark-cli', 'custom-cli') THEN 'cli'
     WHEN agent_kind IN ('tokenezgo', 'doubao', 'hermes', 'custom-api') THEN 'api'
     WHEN agent_kind = 'ollama' THEN 'local'
     WHEN agent_kind = 'mock' THEN 'mock'

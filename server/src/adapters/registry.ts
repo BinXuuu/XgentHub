@@ -4,6 +4,7 @@ import { OpenClawAdapter } from "./openclaw.ts";
 import { CodexAdapter } from "./codex.ts";
 import { ClaudeCodeAdapter } from "./claudeCode.ts";
 import { CodeBuddyAdapter } from "./codeBuddy.ts";
+import { DeepSeekHarnessAdapter } from "./deepseekHarness.ts";
 import { AntigravityAdapter } from "./antigravity.ts";
 import { ArkCliAdapter } from "./arkCli.ts";
 import { HermesAdapter } from "./hermes.ts";
@@ -40,6 +41,7 @@ const adapters: AgentAdapter[] = [
   new CodexAdapter(),
   new ClaudeCodeAdapter(),
   new CodeBuddyAdapter(),
+  new DeepSeekHarnessAdapter(),
   new AntigravityAdapter(),
   new ArkCliAdapter(),
   new OpenClawAdapter(),

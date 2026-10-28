@@ -29,6 +29,7 @@ const AGENT_KIND_COLORS: Record<string, string> = {
   codex: "#4f8cff",
   "claude-code": "#a78bfa",
   codebuddy: "#6366f1",
+  "deepseek-harness": "#4d6bfe",
   antigravity: "#f43f5e",
   "ark-cli": "#0ea5e9",
   hermes: "#22c55e",

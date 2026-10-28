@@ -7,6 +7,7 @@ import { resolveCliBinary, spawnCli } from "../adapters/winSpawn.ts";
 import { getCustomAgent } from "./customAgentService.ts";
 import { codexEnvForHome, codexHomeForAgent } from "./codexAccountService.ts";
 import { claudeEnvForAgent, claudeHomeForAgent, getClaudeAccount } from "./claudeAccountService.ts";
+import { resolveDshLaunch } from "../adapters/deepseekHarness.ts";
 import type {
   AgentAccountInfo,
   AgentDiagnosticCheck,
@@ -211,6 +212,26 @@ function buildSetupStepsRaw(
         step("选择模型", modelCount > 0 ? "ok" : "warn", `当前检测到 ${modelCount} 个模型（来自 codebuddy --help）。`, [
           field("定位默认模型", "CODEBUDDY_MODEL"),
         ]),
+      ];
+    case "deepseek-harness":
+      return [
+        step(
+          "安装 DeepSeek Harness",
+          statusOf(checks, "DeepSeek Harness"),
+          "Xgent 直接用 DeepSeek Harness 桌面版自带的 dsh。装在别处的话填桌面版目录；没装桌面版、装的是 npm 版的话，在 DSH_BIN 填 dsh。",
+          [
+            url("打开 DeepSeek Harness 项目", "https://github.com/deepseek-ai/deepseek-harness"),
+            field("定位桌面版目录", "DSH_DESKTOP_DIR"),
+            field("定位 dsh 命令", "DSH_BIN"),
+          ]
+        ),
+        step(
+          "登录 DeepSeek 账号",
+          statusOf(checks, "账号方式"),
+          "默认用桌面版登录的 DeepSeek 账号：打开 DeepSeek Harness 桌面版登录一次就行。想改用 API Key，把账号方式改成 api-key，并在 .env 配 DEEPSEEK_API_KEY。",
+          [field("定位账号方式", "DSH_PROVIDER")]
+        ),
+        step("选择模型", "ok", "账号方式能用 deepseek-flash 和 deepseek-v4-pro。", [field("定位默认模型", "DSH_MODEL")]),
       ];
     case "antigravity":
       return [
@@ -628,6 +649,25 @@ async function diagnoseBuiltin(
       addCheck(checks, "Headless 参数", "ok", config.codebuddy.args.join(" "));
       break;
     }
+    case "deepseek-harness": {
+      const launch = resolveDshLaunch();
+      if (!launch) {
+        addCheck(checks, "DeepSeek Harness", "error", config.deepseekHarness.bin ? `找不到 ${config.deepseekHarness.bin}` : `桌面版不在 ${config.deepseekHarness.desktopDir}`);
+        nextSteps.push("安装 DeepSeek Harness 桌面版并登录 DeepSeek 账号，或在配置里填写桌面版目录 / dsh 命令。");
+        return true;
+      }
+      addCheck(checks, "DeepSeek Harness", "ok", launch.viaShim ? launch.command : `桌面版自带的 dsh（${launch.command}）`);
+      addCheck(
+        checks,
+        "账号方式",
+        config.deepseekHarness.provider === "api-key" && !process.env.DEEPSEEK_API_KEY ? "warn" : "ok",
+        config.deepseekHarness.provider === "api-key"
+          ? process.env.DEEPSEEK_API_KEY ? "API Key（DEEPSEEK_API_KEY）" : "API Key 模式，但没配 DEEPSEEK_API_KEY"
+          : "桌面版登录的 DeepSeek 账号；没登录时任务会直接提示"
+      );
+      addCheck(checks, "默认模型", "ok", config.deepseekHarness.defaultModel || "deepseek-flash");
+      break;
+    }
     case "antigravity": {
       if (!checkCli(checks, "Antigravity CLI", config.antigravity.bin)) {
         nextSteps.push("安装 Antigravity CLI：在 PowerShell 运行 irm https://antigravity.google/cli/install.ps1 | iex，或在配置里填写 agy.exe 的完整路径。");
@@ -742,7 +782,7 @@ export async function diagnoseAgent(agentId: string): Promise<AgentDiagnostics> 
   const isClaude = Boolean(claudeHomeForAgent(agentId));
   const builtinKey = codexHome ? "codex" : isClaude ? "claude-code" : agentId;
   const accountHome = codexHome ?? getClaudeAccount(agentId)?.home ?? null;
-  const cliKinds = new Set(["codex", "claude-code", "codebuddy", "antigravity", "ark-cli", "openclaw"]);
+  const cliKinds = new Set(["codex", "claude-code", "codebuddy", "deepseek-harness", "antigravity", "ark-cli", "openclaw"]);
   addCheck(
     checks,
     "Agent 配置",

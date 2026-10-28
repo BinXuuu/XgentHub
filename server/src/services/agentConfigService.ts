@@ -164,6 +164,61 @@ const schemas: Record<string, FieldDefinition[]> = {
       },
     },
   ],
+  "deepseek-harness": [
+    {
+      key: "DSH_PROVIDER",
+      label: "账号方式",
+      type: "text",
+      placeholder: "account",
+      help: "account：用 DeepSeek Harness 桌面版登录的 DeepSeek 账号（默认）；api-key：用 .env 里的 DEEPSEEK_API_KEY。",
+      get: () => config.deepseekHarness.provider,
+      apply: (value) => {
+        config.deepseekHarness.provider = value === "api-key" ? "api-key" : "account";
+      },
+    },
+    {
+      key: "DSH_MODEL",
+      label: "默认模型",
+      type: "text",
+      placeholder: "deepseek-flash",
+      help: "deepseek-flash 或 deepseek-v4-pro。",
+      get: () => config.deepseekHarness.defaultModel,
+      apply: (value) => {
+        config.deepseekHarness.defaultModel = value || "deepseek-flash";
+      },
+    },
+    {
+      key: "DSH_REASONING_EFFORT",
+      label: "推理强度",
+      type: "text",
+      placeholder: "留空用默认；可填 low / medium / high",
+      get: () => config.deepseekHarness.reasoningEffort,
+      apply: (value) => {
+        config.deepseekHarness.reasoningEffort = value;
+      },
+    },
+    {
+      key: "DSH_DESKTOP_DIR",
+      label: "桌面版目录",
+      type: "text",
+      placeholder: "DeepSeek Harness 桌面版安装目录",
+      get: () => config.deepseekHarness.desktopDir,
+      apply: (value) => {
+        if (value) config.deepseekHarness.desktopDir = value;
+      },
+    },
+    {
+      key: "DSH_BIN",
+      label: "dsh 命令（可选）",
+      type: "text",
+      placeholder: "留空用桌面版自带的",
+      help: "装了 npm 版（npm i -g @deepseek-ai/dsh）又不想用桌面版时填 dsh。",
+      get: () => config.deepseekHarness.bin,
+      apply: (value) => {
+        config.deepseekHarness.bin = value;
+      },
+    },
+  ],
   antigravity: [
     {
       key: "ANTIGRAVITY_BIN",

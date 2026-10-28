@@ -47,7 +47,7 @@ function buildChecklist(agents: AgentDescriptor[], statusLookup: Map<string, Age
   // 只算真正能改本机文件、而且诊断通过的 Agent；以前把所有 Agent 都算进来，新电脑什么都没装也会打绿勾。
   const workspaceAgents = agents.filter((agent) => agent.runtime?.canWriteWorkspace && statusLookup.get(agent.id) === "ok");
   const localModelAgents = byKind(["ollama"]);
-  const cliAgents = byKind(["codex", "claude-code", "codebuddy", "openclaw", "antigravity", "ark-cli", "custom-cli"]);
+  const cliAgents = byKind(["codex", "claude-code", "codebuddy", "deepseek-harness", "openclaw", "antigravity", "ark-cli", "custom-cli"]);
   const apiAgents = byKind(["hermes", "tokenezgo", "doubao", "custom-api"]);
   const readyAgents = agents.filter((agent) => statusLookup.get(agent.id) === "ok");
   const almostAgents = agents.filter((agent) => statusLookup.get(agent.id) === "warn");

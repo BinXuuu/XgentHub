@@ -34,6 +34,7 @@ const DATE_SECTION_LABELS: Record<DateSection, string> = {
 const AGENT_LABELS: Partial<Record<Task["agentKind"], string>> = {
   "claude-code": "Claude Code",
   codebuddy: "WorkBuddy",
+  "deepseek-harness": "DeepSeek",
   codex: "Codex",
   antigravity: "Antigravity",
   openclaw: "OpenClaw",

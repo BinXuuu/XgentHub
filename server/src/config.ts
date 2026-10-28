@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveClaudeCodeBin } from "./adapters/claudeBinary.ts";
@@ -59,6 +60,20 @@ export const config = {
     // 跟 Claude Code 一样：--print + stream-json 时要带 --verbose 才会逐条输出事件
     args: (process.env.CODEBUDDY_ARGS ?? "--print --output-format stream-json --verbose").split(" ").filter(Boolean),
     defaultModel: process.env.CODEBUDDY_MODEL ?? "",
+  },
+  deepseekHarness: {
+    /** 留空用 DeepSeek Harness 桌面版自带的 dsh；装了 npm 版（npm i -g @deepseek-ai/dsh）可以填 dsh。 */
+    bin: process.env.DSH_BIN ?? "",
+    desktopDir:
+      process.env.DSH_DESKTOP_DIR ||
+      (process.platform === "darwin"
+        ? "/Applications/DeepSeek Harness.app"
+        : path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Programs", "DeepSeek Harness")),
+    /** account：用桌面版登录的 DeepSeek 账号；api-key：用 DEEPSEEK_API_KEY。 */
+    provider: (process.env.DSH_PROVIDER === "api-key" ? "api-key" : "account") as "account" | "api-key",
+    defaultModel: process.env.DSH_MODEL ?? "deepseek-flash",
+    reasoningEffort: process.env.DSH_REASONING_EFFORT ?? "",
+    timeoutSec: Number(process.env.DSH_TIMEOUT ?? 3600),
   },
   antigravity: {
     bin: process.env.ANTIGRAVITY_BIN ?? "agy",

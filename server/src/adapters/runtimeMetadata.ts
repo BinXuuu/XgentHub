@@ -4,7 +4,7 @@ export function runtimeKindFromAgentKind(kind: AgentKind): RuntimeKind {
   if (kind === "mock") return "mock";
   if (kind === "ollama") return "local";
   if (kind === "custom-cli" || kind === "custom-api") return "custom";
-  if (kind === "codex" || kind === "claude-code" || kind === "codebuddy" || kind === "openclaw" || kind === "antigravity" || kind === "ark-cli") return "cli";
+  if (kind === "codex" || kind === "claude-code" || kind === "codebuddy" || kind === "deepseek-harness" || kind === "openclaw" || kind === "antigravity" || kind === "ark-cli") return "cli";
   if (kind === "tokenezgo" || kind === "doubao" || kind === "hermes") return "api";
   return "unknown";
 }
@@ -73,6 +73,18 @@ const PROFILES: Record<AgentKind, AgentRuntimeProfile> = {
     supportsStop: false,
     supportsResume: true,
     notes: ["CodeBuddy Code speaks the Claude Code headless protocol; permission requests go through AgentHub approvals."],
+  },
+  "deepseek-harness": {
+    ...BASE,
+    kind: "cli",
+    executionKind: "external-cli",
+    toolBoundary: "preflight-gated",
+    canReadWorkspace: true,
+    canWriteWorkspace: true,
+    canExecuteCommands: true,
+    supportsStop: false,
+    supportsResume: true,
+    notes: ["dsh headless has no approval channel; its own sandbox confines writes to the workspace unless full access is chosen."],
   },
   openclaw: {
     ...BASE,

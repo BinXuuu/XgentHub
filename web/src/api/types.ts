@@ -4,6 +4,7 @@ export type AgentKind =
   | "codex"
   | "claude-code"
   | "codebuddy"
+  | "deepseek-harness"
   | "antigravity"
   | "ark-cli"
   | "hermes"
