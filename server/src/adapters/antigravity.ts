@@ -95,6 +95,8 @@ function runAgy(args: string[], cwd: string, timeoutMs: number): Promise<CliResu
       resolve({ code: null, stdout: "", stderr: "", error: err as Error });
       return;
     }
+    // 不关 stdin 的话，经 npm 的 .ps1 启动脚本跑的 CLI 会一直等输入，直到超时（实测 arkcli auth status 1.8 秒 → 卡满 20 秒）。
+    child.stdin?.end();
 
     let stdout = "";
     let stderr = "";

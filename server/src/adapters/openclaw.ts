@@ -63,6 +63,8 @@ function runOpenclaw(
 ): Promise<OpenClawRunResult> {
   return new Promise((resolve, reject) => {
     const child = spawnOpenclaw(args, cwd);
+    // 不关 stdin 的话，经 npm 的 .ps1 启动脚本跑的 CLI 会一直等输入，直到超时（实测 arkcli auth status 1.8 秒 → 卡满 20 秒）。
+    child.stdin?.end();
     const timeoutMs = options.timeoutMs ?? config.openclaw.timeoutSec * 1000;
     const idleTimeoutMs = options.idleTimeoutMs ?? 0;
     let stdout = "";
