@@ -388,7 +388,7 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                     {live?.ok && (
                       <small>
                         {live.expiresAt ? `${new Date(live.expiresAt).toLocaleDateString("zh-CN")} 到期` : "永不过期"}
-                        {live.modelLimits.length > 0 ? `，限 ${live.modelLimits.length} 个模型` : ""}
+                        {live.modelLimits?.length ? `，限 ${live.modelLimits.length} 个模型` : ""}
                       </small>
                     )}
                   </div>
@@ -411,7 +411,7 @@ export function AgentConfigPanel({ agent, onBack, onAgentsChanged, onAgentCreate
                     <strong>最近调用</strong>
                     <span>TokenEZGO 实际扣费，只统计这个 API Key</span>
                   </div>
-                  {!live?.recentCalls.length ? (
+                  {!live?.recentCalls?.length ? (
                     <div className="meta">暂无记录</div>
                   ) : (
                     live.recentCalls.map((call) => (
