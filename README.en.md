@@ -2,9 +2,9 @@
 
 English | [中文](README.md)
 
-Xgent Hub is a local control console for the coding agents installed on your computer: Codex, Claude Code, Antigravity, OpenClaw, Ark CLI, Ollama and any OpenAI-compatible API. You drive all of them from one web workspace (desktop app, browser or phone). The core is a task board with an approval queue and diff review, not a model dropdown with a chat box.
+Xgent Hub is a local control console for the coding agents installed on your computer: Codex, Claude Code, Antigravity, WorkBuddy (CodeBuddy), DeepSeek Harness, OpenClaw, Ark CLI, Ollama and any OpenAI-compatible API. You drive all of them from one web workspace (desktop app, browser or phone). The core is a task board with an approval queue and diff review, not a model dropdown with a chat box.
 
-> The user interface is currently in Simplified Chinese. Windows 10/11 is the only supported platform: the service scripts, installer and CLI launching are Windows-specific.
+> The user interface is currently in Simplified Chinese. It runs on Windows 10/11, macOS and Linux, and on a NAS (fnOS, Synology, ...) via Docker. The desktop app (Electron) and the installer are Windows-only for now; on macOS / Linux use the browser.
 
 ## Screenshots
 
@@ -20,9 +20,13 @@ Xgent Hub is a local control console for the coding agents installed on your com
 
 ![Diff review](.github/screenshots/diff.png)
 
-**Parallel agents**: one request split into subtasks handed to different agents (Codex, Claude Code, Antigravity…) that work at the same time; steps that depend on others wait for them, and everything comes back to the coordinator for a summary. Animated dashed edges are runs in progress.
+**Parallel agents**: one request split into subtasks handed to different agents (Codex, Claude Code, Antigravity…) that work at the same time; steps that depend on others wait for them, and everything comes back to the coordinator for a summary. The flow tab's "Structure" view draws it as a node graph you can drag and zoom; animated dashed edges are runs in progress.
 
 ![Parallel multi-agent flow](.github/screenshots/flow.png)
+
+**Timeline**: the other view of the flow tab, one column per subtask, showing top to bottom what each agent did and when: received the task, ran commands, changed files, waited for approval, finished. Tick "Show tokens" to see how many tokens each step used.
+
+![Flow timeline](.github/screenshots/flow-timeline.png)
 
 **Summary**: every subtask's reply is labelled with its subtask and agent; at the end the coordinator checks the whole workspace and hands you the result.
 
@@ -32,16 +36,25 @@ Xgent Hub is a local control console for the coding agents installed on your com
 
 ![Chat](.github/screenshots/chat.png)
 
+**Scheduled tasks**: agents do work on a schedule, e.g. check dependencies every weekday morning, write a weekly report on Fridays, or come back to a task every few hours to follow up. Unread results show as a number on the scheduled-tasks item in the left nav.
+
+![Scheduled tasks](.github/screenshots/automations.png)
+
+**MCP servers**: "Test connection" performs a real MCP handshake and lists the tools the server offers; MCP configs from elsewhere can be imported by pasting their JSON.
+
+![MCP servers](.github/screenshots/mcp.png)
+
 ## Features
 
 - **Tasks**: give an agent a job in a workspace folder and follow its messages, terminal output, file changes and diffs live. Stop it, continue the conversation, or hand the task over to another agent and model mid-way.
 - **Approval queue**: risky actions (installing packages, running commands, `git push`, touching secrets) wait for your approval. Claude Code's own per-tool permission prompts appear in the same queue. A pop-up, sound, tab title and badge tell you when something is waiting.
 - **Three permission levels per task**: ask for approval, approve for me (only high-risk actions ask), or full access.
 - **Undo**: every agent turn is snapshotted, so you can roll a workspace back to before a turn.
-- **AI task splitting with parallel execution**: describe a larger job and let a planner split it into subtasks assigned to different agents and models. Independent subtasks run at the same time, dependent ones wait, and the coordinator summarizes the results at the end; follow it all as a flow graph. `AGENTHUB_MAX_PARALLEL_SUBTASKS` in `.env` limits how many run at once (unlimited by default).
+- **AI task splitting with parallel execution**: when creating the task, tick which agents and roles it may use; the first request you send is split into subtasks, assigned and started automatically. Independent subtasks run at the same time, dependent ones wait, and the coordinator summarizes the results at the end. Not happy with one step? Redo just that step, and the steps that depend on it and the summary rerun automatically. The flow tab has a "Structure" node graph and a "Timeline" view, and can show tokens used per step. `AGENTHUB_MAX_PARALLEL_SUBTASKS` in `.env` limits how many run at once (unlimited by default).
+- **Scheduled tasks**: the scheduled-tasks item in the left nav works like Codex automations, in two kinds: create a new task on schedule (with the agent or role, workspace, model and permission you chose), or send a message into an existing task so it carries on. Schedules can be every few hours, daily, weekdays or chosen days of the week. A run is skipped while the previous one is still going; nothing runs while Xgent is closed, and one catch-up run happens when it starts again.
 - **Chat**: lightweight conversations with any agent, without a workspace.
 - **Roles**: wrap an agent and model into a fixed persona ("designer", "copywriter") with its own instructions and knowledge.
-- **Knowledge base, Skills, tools and MCP servers**: manage them once and attach them to workspaces, chats or roles. Skills can be installed straight from a GitHub link (for example Anthropic's `anthropics/skills`), with each skill's license shown.
+- **Knowledge base, Skills, tools and MCP servers**: manage them once and attach them to workspaces, chats or roles. Skills can be installed straight from a GitHub link (for example Anthropic's `anthropics/skills`), with each skill's license shown. MCP "Test connection" does a real handshake and lists the tools; JSON in the `{"mcpServers": …}` format can be pasted in to import; HTTP servers that need a token can be connected through a stdio bridge (Codex has no custom request headers), and HTTP MCP servers that need an OAuth login no longer leave a Codex task stuck waiting for a browser sign-in.
 - **Recommended catalog**: the "推荐" page lists curated skills, MCP servers and tools to install in one click, and flags new versions when the catalog changes. You can also subscribe to other catalogs (format: [catalog/README.md](catalog/README.md)).
 - **Agent diagnostics**: each agent's page checks whether its CLI is installed and logged in, lists models and usage, and gives step-by-step install instructions.
 - **Desktop app**: an Electron shell that starts the local service and logs in automatically.
@@ -52,13 +65,13 @@ Xgent Hub is a local control console for the coding agents installed on your com
 
 Agents are the AIs that do the actual work. Xgent doesn't write code itself; it hands tasks to the agents you already use and manages them in one place:
 
-- **Local CLI agents**: Codex, Claude Code, Antigravity, OpenClaw, Ark CLI. They read and write files in the workspace and run commands on your machine.
+- **Local CLI agents**: Codex, Claude Code, Antigravity, WorkBuddy (CodeBuddy), DeepSeek Harness, OpenClaw, Ark CLI. They read and write files in the workspace and run commands on your machine.
 - **API agents**: the recommended API relay, Doubao, Hermes, a local Ollama, or any OpenAI-compatible endpoint — good for chat and tasks that don't touch files.
 - **Custom agents**: plug in your own API or command-line tool.
 
-The agent list on the left shows which account each agent is signed in with; "remaining usage" shows the quota right there. Each agent's page has:
+The agent list on the left shows which account each agent is signed in with; "remaining usage" shows the quota right there. The "+" on the list opens the "Add agent" page: discover CLIs already installed on this machine, add a signed-in account for an agent, restore built-in agents you removed, or connect a custom API or command-line tool. Each agent's page has:
 
-- **Account**: which account and plan it uses. Codex and Claude Code can have several accounts, each with its own login, quota and sessions, and you pick one when creating a task just like picking an agent; a Claude Code account can also use an official API key or your own relay. The log-in button opens a login window (a Terminal window on macOS, a ready-to-run command on a NAS).
+- **Account**: which account and plan it uses. Codex, Claude Code, WorkBuddy, DeepSeek Harness and Ark CLI can have several accounts, each with its own login, quota and sessions, and you pick one when creating a task just like picking an agent; a Claude Code account can also use an official API key or your own relay. Accounts can have a note, shown in brackets in the sidebar (the email is shown when the note is empty). The log-in button opens a login window (a Terminal window on macOS, a ready-to-run command on a NAS).
 - **Diagnostics**: checks whether the CLI is installed and signed in, whether it is up to date, which models are available and how much quota is left, with copy-paste fix-up steps.
 - **Settings**: CLI path, sandbox mode, default model and so on, applied immediately without editing `.env` by hand.
 
@@ -162,6 +175,8 @@ Open `http://<NAS IP>:4180`. Everything lives in `xgent-data/` next to `docker-c
 | Codex | `codex exec --json`, runs inside Codex's own OS sandbox | `npm install -g @openai/codex`, then `codex login` |
 | Claude Code | `claude` headless mode (`--print --output-format stream-json`) | Claude Desktop (its bundled CLI is found automatically) or `irm https://claude.ai/install.ps1 \| iex` |
 | Antigravity | `agy` headless mode | `irm https://antigravity.google/cli/install.ps1 \| iex`, then run `agy` once to sign in |
+| WorkBuddy (CodeBuddy) | `codebuddy` headless mode (`-p --output-format stream-json`), using the quota that comes with the WorkBuddy account | `npm install -g @tencent-ai/codebuddy-code`, run `codebuddy` once and `/login` with the WorkBuddy account |
+| DeepSeek Harness | `dsh` headless mode, using the DeepSeek account signed in to the desktop app | Install the DeepSeek Harness desktop app and sign in with a DeepSeek account |
 | OpenClaw | `openclaw agent` through the local OpenClaw Gateway | `npm install -g openclaw`, gateway running |
 | Ark CLI | `arkcli +chat` (Volcengine Ark / Doubao) | `npm install -g @volcengine/ark-cli@latest`, then `arkcli auth login` |
 | Ollama | native Ollama API on `127.0.0.1:11434` | [Ollama](https://ollama.com/download) with at least one model pulled |
