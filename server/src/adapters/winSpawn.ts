@@ -126,7 +126,13 @@ export function spawnCli(bin: string, args: string[], opts: CliSpawnOptions): Ch
     }
     if (isCmdShim(resolved)) {
       const command = ["call", resolved, ...args].map(winQuoteArg).join(" ");
-      return nodeSpawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", command], { ...spawnOpts, windowsHide: true });
+      // 命令行要原样交给 cmd.exe（/s 会剥掉最外层这对引号）。不加 windowsVerbatimArguments 的话 Node 会把里面的 " 再转义成 \"，
+      // 带空格的参数到 CLI 那边就断成两半（"C:\Program Files\nodejs\node.exe" 变成 "C:\Program 和 Files\nodejs\node.exe"）。
+      return nodeSpawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${command}"`], {
+        ...spawnOpts,
+        windowsHide: true,
+        windowsVerbatimArguments: true,
+      });
     }
     return nodeSpawn(resolved, args, { ...spawnOpts, windowsHide: true });
   }

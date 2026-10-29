@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { ProxyAgent } from "undici";
 import { db } from "../db/index.ts";
 import { config } from "../config.ts";
-import { spawnCli, killProcessTree } from "../adapters/winSpawn.ts";
+import { probeHttpMcp, probeStdioMcp, type McpProbeResult } from "./mcpProbe.ts";
 import type { McpServerDefinition, McpTransport } from "../types.ts";
 import type { McpServerSpec } from "../adapters/types.ts";
 import { readJsonFile, writeJsonAtomic } from "./jsonStore.ts";
@@ -75,82 +75,44 @@ function normalize(input: McpServerInput): Pick<McpServerDefinition, "transport"
   };
 }
 
-export interface McpServerTestResult {
-  ok: boolean;
-  message: string;
-}
+export type McpServerTestResult = McpProbeResult;
 
-const STDIO_TEST_TIMEOUT_MS = 5_000;
+// stdio 要等程序启动 + 握手：Python / npx 类的 MCP 冷启动十几秒很常见，给足时间。
+const STDIO_TEST_TIMEOUT_MS = 30_000;
 // 实测过 Node 的 fetch 对某些域名（哪怕 curl 几秒内就拿到 200）会明显更慢，8s 太容易假阴性，给够余量。
-const HTTP_TEST_TIMEOUT_MS = 15_000;
+const HTTP_TEST_TIMEOUT_MS = 20_000;
 
 // Node 内置 fetch 不会像 curl 那样自动读 HTTP_PROXY/HTTPS_PROXY——这台机器的外网访问是走本地
-// 代理的，不接这个会导致任何外部 MCP http 地址测试都假失败（连不上代理之外的真实网络）。
+// 代理的，不接这个会导致任何外部 MCP http 地址测试都假失败（连不上代理之外的真实网络）。本机地址不走代理。
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
 const proxyDispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    return host === "localhost" || host === "::1" || host.startsWith("127.");
+  } catch {
+    return false;
+  }
+}
+
 /**
- * "测试连接"：在真正保存/派发给任务之前，先确认这个 MCP server 配置是能跑起来的，而不是等
- * 用户建了任务才发现命令打错字或者 URL 连不上。不代替真实 MCP 客户端做协议握手（那需要完整
- * 实现 JSON-RPC initialize 流程），只做最基础的"连得上/启动不报错"级别的检测：
- * - http：发一个 GET，只要有响应（哪怕是 404/405，MCP 服务端通常只认 POST）就算连通；
- *   网络层失败（DNS/连接拒绝/超时）才算失败。
- * - stdio：把命令启动起来，等几秒——没有立刻崩溃退出 / 报 ENOENT 就算成功；大多数 MCP
- *   server 本来就是常驻等 stdin 输入，所以"一直没退出"反而是正常现象，用超时判定成功。
+ * "测试连接"：真的按 MCP 协议握手（initialize → initialized → tools/list），成功时列出发现的工具。
+ * 以前只看「进程起来没崩」/「HTTP 有响应」，命令写错参数、桥接连不上后端、令牌不对都会被当成成功。
  */
 export async function testMcpServerConnection(input: McpServerInput): Promise<McpServerTestResult> {
   if (input.transport === "http") {
-    if (!input.url?.trim()) return { ok: false, message: "没有填 URL" };
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TEST_TIMEOUT_MS);
-    try {
-      const res = await fetch(input.url, {
-        method: "GET",
-        headers: input.headers,
-        signal: controller.signal,
-        ...(proxyDispatcher ? { dispatcher: proxyDispatcher } : {}),
-      } as RequestInit);
-      return { ok: true, message: `已连上，HTTP ${res.status}` };
-    } catch (err) {
-      const message =
-        err instanceof Error && err.name === "AbortError" ? `${HTTP_TEST_TIMEOUT_MS / 1000} 秒内没有响应` : (err as Error).message;
-      return { ok: false, message: `连接失败：${message}` };
-    } finally {
-      clearTimeout(timeout);
-    }
+    const url = input.url?.trim();
+    if (!url) return { ok: false, message: "没有填 URL" };
+    return probeHttpMcp({ url, headers: input.headers }, HTTP_TEST_TIMEOUT_MS, isLoopbackUrl(url) ? undefined : proxyDispatcher);
   }
-
   if (!input.command?.trim()) return { ok: false, message: "没有填启动命令" };
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (result: McpServerTestResult) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-    let child: ReturnType<typeof spawnCli>;
-    try {
-      child = spawnCli(input.command!.trim(), input.args ?? [], {
-        cwd: process.cwd(),
-        env: { ...process.env, ...(input.env ?? {}) },
-      });
-    } catch (err) {
-      finish({ ok: false, message: `启动失败：${(err as Error).message}` });
-      return;
-    }
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
-    child.on("error", (err) => finish({ ok: false, message: `启动失败：${err.message}` }));
-    const timer = setTimeout(() => {
-      killProcessTree(child);
-      finish({ ok: true, message: "已启动并保持运行（MCP server 常驻等待连接是正常现象）" });
-    }, STDIO_TEST_TIMEOUT_MS);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0 || code === null) finish({ ok: true, message: "命令已跑起来并正常退出" });
-      else finish({ ok: false, message: `退出码 ${code}${stderr.trim() ? `：${stderr.trim().slice(0, 300)}` : ""}` });
-    });
-  });
+  return probeStdioMcp({ command: input.command, args: input.args, env: input.env }, STDIO_TEST_TIMEOUT_MS);
+}
+
+/** 只想知道某个 HTTP MCP 要不要先登录授权时用（注册进 Codex 之前问一下），超时短一些，不阻塞任务太久。 */
+export function probeHttpMcpServer(url: string, timeoutMs: number): Promise<McpServerTestResult> {
+  return probeHttpMcp({ url }, timeoutMs, isLoopbackUrl(url) ? undefined : proxyDispatcher);
 }
 
 export function listMcpServers(): McpServerDefinition[] {

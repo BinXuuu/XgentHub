@@ -1,5 +1,9 @@
 import type {
   AgentDescriptor,
+  Automation,
+  AutomationInput,
+  AutomationRun,
+  AutomationStatus,
   AgentDiagnostics,
   AgentConfigResponse,
   AlwaysAllowRule,
@@ -21,6 +25,7 @@ import type {
   MachineConfigApplyResult,
   MachineConfigDiscovery,
   McpServerDefinition,
+  McpServerTestResult,
   MemoryEntry,
   ModelOption,
   MultiAgentPlan,
@@ -215,6 +220,18 @@ export const api = {
     }>
   ) => request<McpServerDefinition>(`/mcp-servers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
   deleteMcpServer: (id: string) => request<{ ok: boolean }>(`/mcp-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listAutomations: () => request<Automation[]>("/automations"),
+  automationUnreadCount: () => request<{ count: number }>("/automations/unread-count"),
+  createAutomation: (input: AutomationInput) => request<Automation>("/automations", { method: "POST", body: JSON.stringify(input) }),
+  updateAutomation: (id: string, input: AutomationInput) =>
+    request<Automation>(`/automations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  setAutomationStatus: (id: string, status: AutomationStatus) =>
+    request<Automation>(`/automations/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  runAutomation: (id: string) => request<AutomationRun>(`/automations/${encodeURIComponent(id)}/run`, { method: "POST", body: "{}" }),
+  listAutomationRuns: (id: string) => request<AutomationRun[]>(`/automations/${encodeURIComponent(id)}/runs`),
+  markAutomationRead: (id: string, runId?: string) =>
+    request<{ ok: true }>(`/automations/${encodeURIComponent(id)}/read`, { method: "POST", body: JSON.stringify({ runId }) }),
+  deleteAutomation: (id: string) => request<{ ok: true }>(`/automations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   testMcpServer: (input: {
     name?: string;
     transport: "stdio" | "http";
@@ -223,7 +240,7 @@ export const api = {
     env?: Record<string, string>;
     url?: string | null;
     headers?: Record<string, string>;
-  }) => request<{ ok: boolean; message: string }>("/mcp-servers/test", { method: "POST", body: JSON.stringify(input) }),
+  }) => request<McpServerTestResult>("/mcp-servers/test", { method: "POST", body: JSON.stringify(input) }),
   planButlerIntent: (input: { prompt: string; workspaceId?: string | null; imageCount?: number }) =>
     request<ButlerIntentPlan>("/butler/intent", { method: "POST", body: JSON.stringify(input) }),
   listButlerIntents: (limit?: number) => request<ButlerIntentPlan[]>(`/butler/intents${limit ? `?limit=${limit}` : ""}`),

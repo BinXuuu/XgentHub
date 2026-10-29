@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  AlarmClock,
   Bot,
   BookOpen,
   Home,
@@ -18,18 +19,21 @@ import type { TaskStatus, UpdateInfo } from "../api/types";
 import { UpdateCenter } from "./UpdateCenter";
 import { applyTheme, persistTheme, readStoredTheme, type ThemeMode } from "../utils/theme";
 
-export type NavView = "dashboard" | "chats" | "tasks" | "agents" | "knowledge" | "skills" | "tools" | "mcp" | "catalog";
+export type NavView = "dashboard" | "chats" | "tasks" | "automations" | "agents" | "knowledge" | "skills" | "tools" | "mcp" | "catalog";
 
 interface Props {
   activeView: NavView;
   onViewChange: (view: NavView) => void;
   taskCounts: Record<TaskStatus, number>;
+  /** 定时任务里跑完了还没看的次数。 */
+  automationUnread?: number;
 }
 
 const NAV_ITEMS: { id: NavView; icon: LucideIcon; label: string }[] = [
   { id: "dashboard", icon: Home, label: "工作台" },
   { id: "chats", icon: MessageSquareText, label: "聊天" },
   { id: "tasks", icon: ListChecks, label: "任务" },
+  { id: "automations", icon: AlarmClock, label: "定时" },
   { id: "agents", icon: Bot, label: "Agent" },
   { id: "knowledge", icon: BookOpen, label: "知识库" },
   { id: "skills", icon: Sparkles, label: "Skill" },
@@ -38,7 +42,7 @@ const NAV_ITEMS: { id: NavView; icon: LucideIcon; label: string }[] = [
   { id: "catalog", icon: Store, label: "推荐" },
 ];
 
-export function NavRail({ activeView, onViewChange, taskCounts }: Props) {
+export function NavRail({ activeView, onViewChange, taskCounts, automationUnread = 0 }: Props) {
   const runningCount = taskCounts.running ?? 0;
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme("light"));
 
@@ -108,6 +112,11 @@ export function NavRail({ activeView, onViewChange, taskCounts }: Props) {
                 {approvalCount}
               </span>
             )}
+            {item.id === "automations" && automationUnread > 0 && (
+              <span className="nav-badge nav-badge-approval" title={`${automationUnread} 次定时运行的结果还没看`}>
+                {automationUnread}
+              </span>
+            )}
           </button>
         );
       })}
@@ -149,6 +158,7 @@ export function BottomNav({
   activeView,
   onViewChange,
   taskCounts,
+  automationUnread = 0,
 }: Props) {
   const runningCount = taskCounts.running ?? 0;
   const approvalCount = taskCounts.needs_approval ?? 0;
@@ -170,6 +180,7 @@ export function BottomNav({
             <span className="nav-label">{item.label}</span>
             {isRunning && <span className="nav-badge nav-badge-running" />}
             {item.id === "tasks" && approvalCount > 0 && <span className="nav-badge nav-badge-approval">{approvalCount}</span>}
+            {item.id === "automations" && automationUnread > 0 && <span className="nav-badge nav-badge-approval">{automationUnread}</span>}
           </button>
         );
       })}

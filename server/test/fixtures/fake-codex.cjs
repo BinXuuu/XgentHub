@@ -18,6 +18,11 @@ if (args[0] === "exec") {
     out({ type: "turn.completed" });
     process.exit(0);
   });
+} else if (args[0] === "mcp" && args[1] === "list") {
+  // FAKE_CODEX_MCP_LIST 指向一个 JSON 文件，内容按真实 `codex mcp list --json` 的格式写。
+  const file = process.env.FAKE_CODEX_MCP_LIST;
+  process.stdout.write(file && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "[]");
+  process.exit(0);
 } else if (args[0] === "login" && args[1] === "status") {
   process.stdout.write("Not logged in\n");
   process.exit(1);

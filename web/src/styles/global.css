@@ -4253,6 +4253,17 @@ select.field:focus {
 .mcp-test-result.fail {
   color: var(--danger);
 }
+.mcp-test-result-tools {
+  margin-top: 2px;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+.mcp-transport-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
 .login-theme-toggle {
   position: absolute;
   top: 18px;
@@ -10846,3 +10857,256 @@ select.field:focus {
 .flow-redo-hint { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
 .flow-redo-ok { margin: 0; font-size: 12px; color: var(--success); }
 .flow-redo .btn { justify-self: start; }
+
+/* ===== 定时任务（AutomationsView） ===== */
+.automations-layout {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-self: stretch;
+  overflow: hidden;
+}
+/* 面板自己滚动；里面的输入框不能被纵向弹性布局压扁。 */
+.automation-panel > * {
+  flex-shrink: 0;
+}
+.automation-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 860px;
+}
+.automation-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.automation-panel-head h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text);
+}
+.automation-back {
+  display: none;
+}
+.automation-state {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.automation-state.active {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+.automation-state.paused {
+  color: var(--text-dim);
+}
+.automation-actions {
+  justify-content: flex-start;
+}
+.automation-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+.automation-meta dt {
+  color: var(--text-dim);
+}
+.automation-meta dd {
+  margin: 0;
+  color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.automation-prompt {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.automation-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.automation-schedule > .field {
+  width: auto;
+  min-width: 160px;
+}
+.automation-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.automation-inline .field {
+  width: 72px;
+}
+.automation-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.automation-days label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.automation-days label.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.automation-days input {
+  margin: 0;
+}
+/* 左侧列表：运行时间不折行，后面的 Agent / 要继续的任务太长就省略，不再把一行挤成三行。 */
+.automations-layout .task-row-main {
+  min-width: 0;
+  flex: 1;
+}
+.automations-layout .task-row .sub > span {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.automations-layout .task-row .sub > span:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.automation-unread {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--warning);
+  color: #1f1300;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
+.automation-runs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+.automation-runs {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.automation-run {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.automation-run:last-child {
+  border-bottom: none;
+}
+.automation-run.clickable {
+  cursor: pointer;
+}
+.automation-run.clickable:hover {
+  background: var(--bg-hover);
+}
+.automation-run-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: transparent;
+}
+.automation-run.unread .automation-run-dot {
+  background: var(--warning);
+}
+.automation-run-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.automation-run-main .title {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.automation-run-main .sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.automation-run-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.automation-run-status.failed {
+  color: var(--danger);
+}
+.automation-run-status.skipped {
+  color: var(--warning);
+}
+
+@media (max-width: 760px) {
+  .view-container.view-automations {
+    display: block;
+  }
+  .automations-layout {
+    display: block;
+  }
+  .automations-layout .secondary-sidebar {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    min-width: 0;
+    border-right: none;
+    overflow: auto;
+  }
+  .automations-layout .main-area {
+    display: none;
+  }
+  .automations-layout.detail-open .secondary-sidebar {
+    display: none;
+  }
+  .automations-layout.detail-open .main-area {
+    display: flex;
+    height: 100%;
+  }
+  .automation-back {
+    display: inline-flex;
+  }
+  .automation-panel {
+    padding: 14px 16px 28px;
+  }
+}

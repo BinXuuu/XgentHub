@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../api/client";
 import { fileToKnowledgeEntries, IMPORTABLE_EXTENSIONS, isImportableFile } from "../utils/knowledgeImport";
 import { confirmDialog } from "../utils/dialog";
+import { formatArgsText, formatCommandLine, parseArgsText, parseMcpImport } from "../utils/mcpForm";
 import { SkillLibraryPanel } from "./SkillLibraryPanel";
 import type {
   KnowledgeEntry,
   KnowledgeGroup,
   McpServerDefinition,
+  McpServerTestResult,
   McpServerUsage,
   McpTransport,
   ResourceLibraryItem,
@@ -139,7 +141,10 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
   const [mcpUrl, setMcpUrl] = useState("");
   const [mcpHeadersText, setMcpHeadersText] = useState("");
   const [mcpTesting, setMcpTesting] = useState(false);
-  const [mcpTestResult, setMcpTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [mcpTestResult, setMcpTestResult] = useState<McpServerTestResult | null>(null);
+  const [mcpImportOpen, setMcpImportOpen] = useState(false);
+  const [mcpImportText, setMcpImportText] = useState("");
+  const [mcpImportMessage, setMcpImportMessage] = useState<string | null>(null);
 
   const groupById = useMemo(() => new Map(groups.map((group) => [group.id, group])), [groups]);
 
@@ -306,7 +311,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
     setMcpName(item.name);
     setMcpTransport(item.transport);
     setMcpCommand(item.command ?? "");
-    setMcpArgs(item.args.join(" "));
+    setMcpArgs(formatArgsText(item.args));
     setMcpEnvText(formatKeyValueLines(item.env));
     setMcpUrl(item.url ?? "");
     setMcpHeadersText(formatKeyValueLines(item.headers));
@@ -318,7 +323,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
       name: mcpName.trim(),
       transport: mcpTransport,
       command: mcpTransport === "stdio" ? mcpCommand.trim() : null,
-      args: mcpTransport === "stdio" ? mcpArgs.split(/\s+/).filter(Boolean) : [],
+      args: mcpTransport === "stdio" ? parseArgsText(mcpArgs) : [],
       env: mcpTransport === "stdio" ? parseKeyValueLines(mcpEnvText) : {},
       url: mcpTransport === "http" ? mcpUrl.trim() : null,
       headers: mcpTransport === "http" ? parseKeyValueLines(mcpHeadersText) : {},
@@ -351,6 +356,59 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
       setError((err as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** 粘贴 JSON：一条就填进表单（同名的转成编辑那一条），多条就逐条添加、同名的跳过。 */
+  async function importMcpJson() {
+    setError(null);
+    setMcpImportMessage(null);
+    let servers;
+    try {
+      servers = parseMcpImport(mcpImportText);
+    } catch (err) {
+      setError((err as Error).message);
+      return;
+    }
+    if (servers.length === 1) {
+      const server = servers[0]!;
+      const existing = mcpServers.find((item) => item.name === server.name);
+      setMcpEditingId(existing?.id ?? null);
+      setMcpName(server.name);
+      setMcpTransport(server.transport);
+      setMcpCommand(server.command ?? "");
+      setMcpArgs(formatArgsText(server.args));
+      setMcpEnvText(formatKeyValueLines(server.env));
+      setMcpUrl(server.url ?? "");
+      setMcpHeadersText(formatKeyValueLines(server.headers));
+      setMcpTestResult(null);
+      setMcpImportOpen(false);
+      setMcpImportText("");
+      setMcpImportMessage(
+        existing ? `已有同名的「${server.name}」，已填进表单作为修改，检查无误后点「保存修改」。` : "已填进表单，可以先「测试连接」，再点添加。"
+      );
+      return;
+    }
+    setSaving(true);
+    const added: string[] = [];
+    const skipped: string[] = [];
+    try {
+      for (const server of servers) {
+        if (!server.name.trim() || mcpServers.some((item) => item.name === server.name)) {
+          skipped.push(server.name || "（没有名字）");
+          continue;
+        }
+        await api.createMcpServer(server);
+        added.push(server.name);
+      }
+      setMcpImportOpen(false);
+      setMcpImportText("");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+      setMcpImportMessage(`已添加 ${added.length} 个${added.length ? `：${added.join("、")}` : ""}${skipped.length ? `；已有同名或没有名字、跳过：${skipped.join("、")}` : ""}`);
+      await refreshMcpServers();
     }
   }
 
@@ -794,7 +852,29 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
                 <h3>{mcpEditingId ? "编辑 MCP server" : "添加 MCP server"}</h3>
                 <span>统一注册一次，在工作区里勾选要用的几个，Claude Code / Codex / OpenClaw 都能接上。</span>
               </div>
+              <button className="btn btn-ghost" type="button" onClick={() => setMcpImportOpen((open) => !open)}>
+                {mcpImportOpen ? "收起导入" : "粘贴 JSON 导入"}
+              </button>
             </div>
+            {mcpImportOpen && (
+              <div className="resource-form">
+                <textarea
+                  className="field"
+                  rows={7}
+                  value={mcpImportText}
+                  onChange={(event) => setMcpImportText(event.target.value)}
+                  placeholder={
+                    '粘贴 MCP 配置 JSON，支持：\n· 单个条目 {"name":"…","command":"…","args":[…],"env":{…}}（比如桥接程序生成的配置文件）\n· 标准格式 {"mcpServers":{"名字":{"command":"…"} 或 {"url":"…"}}}\n· 上面单个条目组成的数组'
+                  }
+                />
+                <div className="resource-card-actions">
+                  <button className="btn btn-primary" type="button" disabled={saving || !mcpImportText.trim()} onClick={() => void importMcpJson()}>
+                    导入
+                  </button>
+                </div>
+              </div>
+            )}
+            {mcpImportMessage && <div className="mcp-test-result ok">{mcpImportMessage}</div>}
             <form className="resource-form" onSubmit={(event) => void saveMcpServer(event)}>
               <input className="field" value={mcpName} onChange={(event) => setMcpName(event.target.value)} placeholder="名字，比如 CAD 绘图" />
               <div className="resource-radio-row">
@@ -805,10 +885,21 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
                   <input type="radio" checked={mcpTransport === "http"} onChange={() => setMcpTransport("http")} /> http（远程地址）
                 </label>
               </div>
+              <p className="mcp-transport-hint">
+                {mcpTransport === "stdio"
+                  ? "在本机启动一个程序，通过标准输入输出说 MCP。也包括把 HTTP 服务转成 MCP 的「桥接」程序：这里填桥接的启动命令，服务地址、令牌文件路径放进环境变量（不要把令牌本身写进参数）。"
+                  : "直接连对方提供的 MCP 地址。注意 Codex 不支持自定义请求头：需要令牌认证的服务给 Codex 用时，请改用对方提供的 stdio 桥接。"}
+              </p>
               {mcpTransport === "stdio" ? (
                 <>
                   <input className="field" value={mcpCommand} onChange={(event) => setMcpCommand(event.target.value)} placeholder="启动命令，比如 python" />
-                  <input className="field" value={mcpArgs} onChange={(event) => setMcpArgs(event.target.value)} placeholder="参数，用空格分隔，比如 -m cad_mcp.server" />
+                  <textarea
+                    className="field"
+                    rows={3}
+                    value={mcpArgs}
+                    onChange={(event) => setMcpArgs(event.target.value)}
+                    placeholder={'参数，一行一个（也可以一行写几个用空格分开），比如\n-m\ncad_mcp.server\n带空格的路径用双引号括起来："D:\\My Tools\\bridge.js"'}
+                  />
                   <textarea
                     className="field"
                     rows={3}
@@ -846,6 +937,9 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
                 <div className={mcpTestResult.ok ? "mcp-test-result ok" : "mcp-test-result fail"}>
                   {mcpTestResult.ok ? "✓ " : "✗ "}
                   {mcpTestResult.message}
+                  {mcpTestResult.ok && Boolean(mcpTestResult.tools?.length) && (
+                    <div className="mcp-test-result-tools">工具：{mcpTestResult.tools!.join("、")}</div>
+                  )}
                 </div>
               )}
             </form>
@@ -884,7 +978,7 @@ export function ResourceCenter({ mode, workspaces, onOpenWorkspace }: Props) {
                       {describeMcpUsage(item.usage).length ? `被 ${describeMcpUsage(item.usage).length} 处引用` : "暂无引用"}
                     </div>
                     <code className="resource-command">
-                      {item.transport === "stdio" ? [item.command, ...item.args].filter(Boolean).join(" ") : item.url}
+                      {item.transport === "stdio" ? formatCommandLine(item.command, item.args) : item.url}
                     </code>
                     {describeMcpUsage(item.usage).length > 0 && (
                       <div className="resource-card-sub">{describeMcpUsage(item.usage).join("、")}</div>

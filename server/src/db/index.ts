@@ -167,6 +167,38 @@ CREATE TABLE IF NOT EXISTS role_memories (
 );
 CREATE INDEX IF NOT EXISTS idx_role_memories_role ON role_memories(role_id);
 
+-- 定时任务（照 Codex 自动化）：kind=cron 每次到点新建一个任务；kind=heartbeat 到点往 target_task_id 那个任务里发一条消息。
+CREATE TABLE IF NOT EXISTS automations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'cron',
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  rrule TEXT NOT NULL,
+  agent_id TEXT,
+  workspace_id TEXT,
+  model TEXT,
+  permission_mode TEXT NOT NULL DEFAULT 'supervised',
+  target_task_id TEXT,
+  next_run_at TEXT,
+  last_run_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- 每次运行一条：status 是「这次触发」本身的结果（started / queued / skipped / failed），任务跑得怎样看 task_id 那个任务的状态。
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL,
+  task_id TEXT,
+  trigger TEXT NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  read_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_automation ON automation_runs(automation_id, created_at);
+
 CREATE TABLE IF NOT EXISTS workspace_snapshots (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,

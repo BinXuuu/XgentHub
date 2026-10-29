@@ -158,6 +158,68 @@ export interface McpServerUsage {
   roles: McpServerUsageRef[];
 }
 
+// ---- 定时任务（照 Codex 自动化）----
+/** cron：每次到点新建一个任务；heartbeat：到点往一个已有任务里发消息，让它接着做。 */
+export type AutomationKind = "cron" | "heartbeat";
+export type AutomationStatus = "ACTIVE" | "PAUSED";
+export type AutomationRunStatus = "started" | "queued" | "skipped" | "failed";
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  taskId: string | null;
+  trigger: "schedule" | "manual";
+  status: AutomationRunStatus;
+  message: string;
+  readAt: string | null;
+  createdAt: string;
+  taskStatus: TaskStatus | null;
+  taskTitle: string | null;
+  unread: boolean;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  prompt: string;
+  kind: AutomationKind;
+  status: AutomationStatus;
+  rrule: string;
+  scheduleText: string;
+  agentId: string | null;
+  workspaceId: string | null;
+  model: string | null;
+  permissionMode: PermissionMode;
+  targetTaskId: string | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  unreadCount: number;
+  lastRun: AutomationRun | null;
+}
+
+export interface AutomationInput {
+  name: string;
+  prompt: string;
+  kind: AutomationKind;
+  rrule: string;
+  agentId?: string | null;
+  workspaceId?: string | null;
+  model?: string | null;
+  permissionMode?: PermissionMode;
+  targetTaskId?: string | null;
+}
+
+/** 「测试连接」的结果：真实 MCP 握手，成功时带上服务名、协议版本和发现的工具。 */
+export interface McpServerTestResult {
+  ok: boolean;
+  message: string;
+  serverName?: string;
+  protocolVersion?: string;
+  tools?: string[];
+}
+
 export interface McpServerDefinition {
   id: string;
   name: string;

@@ -10,6 +10,7 @@ import type { AgentAdapter, McpServerSpec, TaskRuntimeContext, TurnInput } from 
 import { runtimeKeyOf } from "./types.ts";
 import type { AgentAccountInfo, FileChange, ModelOption } from "../types.ts";
 import { codexEnvForHome, defaultCodexHome, readCodexAccountInfo } from "../services/codexAccountService.ts";
+import { probeHttpMcpServer } from "../services/mcpServerService.ts";
 import { ASK_TIMEOUT_MS, ASK_TIMEOUT_SEC, cliAskError } from "./askErrors.ts";
 
 const execFileAsync = promisify(execFile);
@@ -42,27 +43,65 @@ function readCodexModelsCache(home: string = defaultCodexHome()): ModelOption[] 
  * 这是 Codex CLI 自己的限制。name 统一带 agenthub- 前缀，这里只增不删/不碰其它条目，
  * 保证用户自己手动 `codex mcp add` 配的（比如 cad-drafting）绝不会被动到。
  */
-function runCodexCli(args: string[], home: string): Promise<{ code: number; stdout: string; stderr: string }> {
+function runCodexCli(args: string[], home: string, timeoutMs = 60_000): Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }> {
   return new Promise((resolve) => {
     const child = spawnCli(config.codex.bin, args, { cwd: process.cwd(), preferCmdShim: true, env: codexEnvForHome(home) });
+    child.stdin?.end();
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(child);
+    }, timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
     child.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
-    child.on("error", (err) => resolve({ code: -1, stdout, stderr: stderr || err.message }));
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ code: -1, stdout, stderr: stderr || err.message });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? -1, stdout, stderr, ...(timedOut ? { timedOut } : {}) });
+    });
   });
 }
 
-async function listCodexMcpServerNames(home: string): Promise<Set<string>> {
+// `codex mcp add --url` 遇到要 OAuth 的服务（比如 Cloudflare 那几个）会当场打开浏览器授权页，然后干等 5 分钟回调，
+// 任务就一直卡在「运行中」。所以注册 HTTP MCP 之前先握手问一下：要登录的跳过并说明，注册本身也加超时兜底。
+const MCP_AUTH_PROBE_TIMEOUT_MS = 10_000;
+const MCP_ADD_TIMEOUT_MS = 30_000;
+
+interface CodexMcpTransport {
+  type?: string;
+  command?: string | null;
+  args?: string[] | null;
+  env?: Record<string, string> | null;
+  url?: string | null;
+}
+
+async function listCodexMcpServers(home: string): Promise<Map<string, CodexMcpTransport>> {
   try {
     const { code, stdout } = await runCodexCli(["mcp", "list", "--json"], home);
-    if (code !== 0) return new Set();
-    const parsed = JSON.parse(stdout) as { name?: string }[];
-    return new Set(parsed.map((item) => item.name).filter((name): name is string => typeof name === "string"));
+    if (code !== 0) return new Map();
+    const parsed = JSON.parse(stdout) as { name?: string; transport?: CodexMcpTransport }[];
+    return new Map(parsed.filter((item) => typeof item.name === "string").map((item) => [item.name!, item.transport ?? {}]));
   } catch {
-    return new Set();
+    return new Map();
   }
+}
+
+const sameEnv = (a: Record<string, string> | null | undefined, b: Record<string, string> | undefined) =>
+  JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
+
+/** Codex 里登记的内容和 Xgent 这边的配置一致才算「已注册」；只看名字的话，配置改过或以前写坏的条目永远不会被更新。 */
+function codexMcpMatches(registered: CodexMcpTransport, server: McpServerSpec): boolean {
+  if (server.transport === "http") return registered.url === server.url;
+  return (
+    registered.command === server.command &&
+    JSON.stringify(registered.args ?? []) === JSON.stringify(server.args ?? []) &&
+    sameEnv(registered.env, server.env)
+  );
 }
 
 // 实测 `codex mcp list --json` 单次就要 ~6s（真的 spawn 一个子进程，不是读本地文件那么快）。
@@ -74,15 +113,18 @@ async function listCodexMcpServerNames(home: string): Promise<Set<string>> {
 const confirmedRegisteredCodexNames = new Set<string>();
 
 async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (message: string) => void, home: string): Promise<void> {
-  const cacheKey = (name: string) => `${home.toLowerCase()}|${name}`;
+  // 配置内容也算进 key：在 Xgent 里改了某个 MCP 的命令/参数，下一轮会重新核对并更新到 Codex。
+  const keyOf = new Map(servers.map((server) => [server.name, `${home.toLowerCase()}|${JSON.stringify(server)}`]));
+  const cacheKey = (name: string) => keyOf.get(name)!;
   const uncached = servers.filter((server) => !confirmedRegisteredCodexNames.has(cacheKey(server.name)));
   if (uncached.length === 0) return;
 
-  const registered = await listCodexMcpServerNames(home);
+  const registered = await listCodexMcpServers(home);
   const missing: McpServerSpec[] = [];
   for (const server of uncached) {
-    if (registered.has(server.name)) confirmedRegisteredCodexNames.add(cacheKey(server.name));
-    else missing.push(server);
+    const current = registered.get(server.name);
+    if (current && codexMcpMatches(current, server)) confirmedRegisteredCodexNames.add(cacheKey(server.name));
+    else missing.push(server); // 没注册，或内容和 Xgent 里的配置不一致：`codex mcp add` 同名会整条覆盖
   }
   if (missing.length === 0) return;
 
@@ -91,6 +133,16 @@ async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (m
       const args = ["mcp", "add", server.name];
       if (server.transport === "http") {
         if (!server.url) continue;
+        const probe = await probeHttpMcpServer(server.url, MCP_AUTH_PROBE_TIMEOUT_MS);
+        if (probe.authRequired) {
+          // 记进缓存：这个进程里不再每轮都问一遍、刷一遍同样的提示。
+          confirmedRegisteredCodexNames.add(cacheKey(server.name));
+          log(
+            `[mcp] 「${server.name}」要先登录授权（${probe.message}），注册进 Codex 会弹出浏览器授权页并卡住任务，已跳过，这一轮 Codex 用不到它。` +
+              `确实要在 Codex 里用的话，在终端运行 codex mcp add ${server.name} --url ${server.url}，在弹出的页面里完成授权`
+          );
+          continue;
+        }
         args.push("--url", server.url);
         if (server.headers && Object.keys(server.headers).length) {
           log(`[mcp] Codex 的 mcp add 不支持自定义 HTTP header，"${server.name}" 的 header 配置已忽略`);
@@ -100,8 +152,9 @@ async function ensureCodexMcpServersRegistered(servers: McpServerSpec[], log: (m
         for (const [key, value] of Object.entries(server.env ?? {})) args.push("--env", `${key}=${value}`);
         args.push("--", server.command, ...(server.args ?? []));
       }
-      const result = await runCodexCli(args, home);
-      if (result.code !== 0) log(`[mcp] 注册 "${server.name}" 到 Codex 失败：${result.stderr.trim() || `exit ${result.code}`}`);
+      const result = await runCodexCli(args, home, MCP_ADD_TIMEOUT_MS);
+      if (result.timedOut) log(`[mcp] 注册 "${server.name}" 到 Codex 超过 ${MCP_ADD_TIMEOUT_MS / 1000} 秒没结束（可能在等浏览器里的登录授权），已中止，先接着跑任务`);
+      else if (result.code !== 0) log(`[mcp] 注册 "${server.name}" 到 Codex 失败：${result.stderr.trim() || `exit ${result.code}`}`);
       else confirmedRegisteredCodexNames.add(cacheKey(server.name));
     } catch (err) {
       log(`[mcp] 注册 "${server.name}" 到 Codex 失败：${(err as Error).message}`);

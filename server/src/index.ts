@@ -26,6 +26,8 @@ import { registerCatalogRoutes } from "./routes/catalog.ts";
 import { registerMcpServerRoutes } from "./routes/mcpServers.ts";
 import { registerRoleRoutes } from "./routes/roles.ts";
 import { registerKnowledgeRoutes } from "./routes/knowledge.ts";
+import { registerAutomationRoutes } from "./routes/automations.ts";
+import { startAutomationScheduler } from "./services/automationService.ts";
 import { startDataBackupSchedule } from "./services/dataBackupService.ts";
 import { taskManager } from "./services/taskManager.ts";
 import { currentVersion } from "./services/updateService.ts";
@@ -69,6 +71,7 @@ registerCatalogRoutes(app);
 registerMcpServerRoutes(app);
 registerRoleRoutes(app);
 registerKnowledgeRoutes(app);
+registerAutomationRoutes(app);
 
 // startedAt：这个服务进程是什么时候启动的。在线更新后据此确认服务真的重启了，而不只是文件被换掉。
 const serverStartedAt = new Date().toISOString();
@@ -100,6 +103,7 @@ app
     console.log(`Xgent Hub server listening on http://${config.host}:${config.port}`);
     startDataBackupSchedule((message) => console.log(`[backup] ${message}`));
     startSnapshotPruneSchedule((message) => console.log(`[snapshots] ${message}`));
+    startAutomationScheduler((message) => console.log(`[定时任务] ${message}`));
     if (!config.adminToken) {
       app.log.warn("未设置 ADMIN_TOKEN：当前处于本机开发模式，任何能访问该端口的人都可以直接使用，请尽快在 .env 中设置 ADMIN_TOKEN。");
     }

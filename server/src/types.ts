@@ -659,6 +659,52 @@ export interface Task {
   updatedAt: string;
 }
 
+// ---- 定时任务（automationService.ts 用，照 Codex 自动化）----
+/** cron：每次到点新建一个任务；heartbeat：到点往一个已有任务里发消息，让它接着做。 */
+export type AutomationKind = "cron" | "heartbeat";
+export type AutomationStatus = "ACTIVE" | "PAUSED";
+/** 这次触发本身的结果：started 新建/续上了任务，queued 目标任务正忙、排进了它的队列，skipped 上一次还没跑完，failed 没能启动。 */
+export type AutomationRunStatus = "started" | "queued" | "skipped" | "failed";
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  taskId: string | null;
+  /** schedule：到点自动；manual：点了「立即运行」。 */
+  trigger: "schedule" | "manual";
+  status: AutomationRunStatus;
+  message: string;
+  readAt: string | null;
+  createdAt: string;
+  /** 关联任务现在的状态和标题（任务被删了就是 null）。 */
+  taskStatus: TaskStatus | null;
+  taskTitle: string | null;
+  /** 跑完了（或没跑起来）、还没看过：左侧「定时」图标上的数字就是这个。 */
+  unread: boolean;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  prompt: string;
+  kind: AutomationKind;
+  status: AutomationStatus;
+  rrule: string;
+  /** 时间规则的中文说明，比如「工作日 09:00」。 */
+  scheduleText: string;
+  agentId: string | null;
+  workspaceId: string | null;
+  model: string | null;
+  permissionMode: PermissionMode;
+  targetTaskId: string | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  unreadCount: number;
+  lastRun: AutomationRun | null;
+}
+
 // ---- MCP server 统一管理（mcpServerService.ts 用）----
 export type McpTransport = "stdio" | "http";
 

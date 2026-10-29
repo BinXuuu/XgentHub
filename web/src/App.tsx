@@ -21,6 +21,7 @@ import { WorkspaceDetailPanel } from "./components/WorkspaceDetailPanel";
 import { ResourceCenter } from "./components/ResourceCenter";
 import { useSSE } from "./hooks/useSSE";
 import { RolePanel } from "./components/RolePanel";
+import { AutomationsView } from "./components/AutomationsView";
 import type {
   AgentDescriptor,
   AgentRole,
@@ -125,6 +126,9 @@ function DashboardShell() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [navView, setNavView] = useState<NavView>("dashboard");
+  // 定时任务：跑完还没看的次数（左侧「定时」角标），以及服务端推送变化时让定时任务页重新拉数据。
+  const [automationUnread, setAutomationUnread] = useState(0);
+  const [automationVersion, setAutomationVersion] = useState(0);
 
   const refreshAgents = useCallback(() => {
     return Promise.all([api.listAgents().then(setAgents), api.listRoles().then(setRoles)]).catch(console.error);
@@ -132,6 +136,13 @@ function DashboardShell() {
 
   const refreshTasks = useCallback(() => {
     return api.listTasks().then(setTasks).catch(console.error);
+  }, []);
+
+  const refreshAutomationUnread = useCallback(() => {
+    return api
+      .automationUnreadCount()
+      .then((result) => setAutomationUnread(result.count))
+      .catch(() => {});
   }, []);
 
   const refreshChats = useCallback(() => {
@@ -149,8 +160,9 @@ function DashboardShell() {
       refreshWorkspaces(),
       refreshChats(),
       refreshTasks(),
+      refreshAutomationUnread(),
     ]).finally(() => setInitialDataReady(true));
-  }, [refreshAgents, refreshChats, refreshTasks, refreshWorkspaces]);
+  }, [refreshAgents, refreshChats, refreshTasks, refreshWorkspaces, refreshAutomationUnread]);
 
   useEffect(() => {
     if (!initialDataReady || hasSeenOnboarding()) return;
@@ -189,11 +201,18 @@ function DashboardShell() {
   useSSE(
     `/api/dashboard/stream`,
     "dashboard_event",
-    () => {
+    (event: { kind?: string }) => {
+      if (event?.kind === "automation_changed") {
+        refreshAutomationUnread();
+        setAutomationVersion((value) => value + 1);
+        return;
+      }
       refreshTasks();
     },
     () => {
       refreshTasks();
+      refreshAutomationUnread();
+      setAutomationVersion((value) => value + 1);
       refreshChats();
       refreshAgents();
     }
@@ -578,6 +597,7 @@ function DashboardShell() {
           activeView={navView}
           onViewChange={changeNavView}
           taskCounts={taskCounts}
+          automationUnread={automationUnread}
         />
 
         {/* 主内容容器 */}
@@ -602,6 +622,9 @@ function DashboardShell() {
           )}
           {navView === "chats" && renderChatsView()}
           {navView === "tasks" && renderTasksView()}
+          {navView === "automations" && (
+            <AutomationsView agents={agents} workspaces={workspaces} tasks={tasks} version={automationVersion} onOpenTask={selectTask} />
+          )}
           {navView === "agents" && renderAgentsView()}
           {navView === "knowledge" && <ResourceCenter mode="knowledge" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
           {navView === "skills" && <ResourceCenter mode="skills" workspaces={workspaces} onOpenWorkspace={openWorkspaceFromResource} />}
@@ -617,6 +640,7 @@ function DashboardShell() {
         activeView={navView}
         onViewChange={changeNavView}
         taskCounts={taskCounts}
+        automationUnread={automationUnread}
       />
 
       <ApprovalAlerts tasks={tasks} agents={agents} selectedTaskId={selectedTaskId} onOpenTask={selectTask} />
