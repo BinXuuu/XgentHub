@@ -40,7 +40,17 @@ jobs:
           block=$(awk '/failing tests:/{f=1} f' test-output.txt | head -120 | sed 's/\r$//; s/%/%25/g' | awk '{printf "%s%%0A", $0}')
           [ -n "$block" ] || block=$(grep -E "✖|not ok" test-output.txt | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=npm test failed on ${{ matrix.os }} / Node ${{ matrix.node }}::${block}"
-      - run: npm audit --audit-level=high
+      # 运行时用到的依赖有高危漏洞就判失败；开发工具（vite 等，只在打包网页时用，不进安装好的程序）
+      # 的公告照样列出来、写成警告，但不判失败——它们有时会出现暂时没有修复版的公告（如 2026-10 的 picomatch）。
+      - name: npm audit (runtime dependencies)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (dev tools, report only)
+        shell: bash
+        run: |
+          if ! npm audit --audit-level=high > audit-dev.txt 2>&1; then
+            cat audit-dev.txt
+            echo "::warning title=npm audit (dev tools)::$(grep -E '^[a-z@].*  ' audit-dev.txt | head -10 | tr '\n' ';' ) 开发工具有安全公告，不影响安装好的程序"
+          fi
 
   linux-install:
     # 像新用户一样跑一遍 install.sh，再试启动、重启、停止。
