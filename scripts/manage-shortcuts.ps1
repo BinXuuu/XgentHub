@@ -1,0 +1,132 @@
+param(
+  [ValidateSet("status", "install", "remove")]
+  [string]$Command = "status"
+)
+
+$ErrorActionPreference = "Stop"
+
+$Root = Split-Path -Parent $PSScriptRoot
+$StartScript = Join-Path $Root "scripts\windows\start-app.vbs"
+$ServiceScript = Join-Path $Root "xgent.bat"
+$ElectronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
+$ProjectIcon = Join-Path $Root "desktop\assets\xgent-hub.ico"
+# Prefer the Xgent icon; electron.exe only carries the generic Electron icon.
+$AppIcon = if (Test-Path $ProjectIcon) { $ProjectIcon } elseif (Test-Path $ElectronExe) { "$ElectronExe,0" } else { "$env:SystemRoot\System32\shell32.dll,220" }
+$StatusIcon = "$env:SystemRoot\System32\shell32.dll,23"
+$StopIcon = "$env:SystemRoot\System32\shell32.dll,131"
+$ProductName = "Xgent Hub"
+$DesktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "$ProductName.lnk"
+$LegacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "AgentHub.lnk"
+$StartMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\$ProductName"
+$LegacyStartMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\AgentHub"
+$StartMenuShortcut = Join-Path $StartMenuDir "$ProductName.lnk"
+$StartMenuStatusShortcut = Join-Path $StartMenuDir "$ProductName Status.lnk"
+$StartMenuStopShortcut = Join-Path $StartMenuDir "Stop $ProductName.lnk"
+$LegacyStartMenuShortcut = Join-Path $LegacyStartMenuDir "AgentHub.lnk"
+$LegacyStartMenuStatusShortcut = Join-Path $LegacyStartMenuDir "AgentHub Status.lnk"
+$LegacyStartMenuStopShortcut = Join-Path $LegacyStartMenuDir "Stop AgentHub.lnk"
+
+function New-AgentHubShortcut {
+  param(
+    [string]$ShortcutPath,
+    [string]$TargetPath,
+    [string]$Description,
+    [string]$IconLocation = $AppIcon,
+    [string]$Arguments = ""
+  )
+
+  if (-not (Test-Path $TargetPath)) {
+    throw "Missing shortcut target: $TargetPath"
+  }
+
+  $parent = Split-Path -Parent $ShortcutPath
+  if ($parent -and -not (Test-Path $parent)) {
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  }
+
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($ShortcutPath)
+  $shortcut.TargetPath = $TargetPath
+  $shortcut.Arguments = $Arguments
+  $shortcut.WorkingDirectory = $Root
+  $shortcut.Description = $Description
+  $shortcut.IconLocation = $IconLocation
+  $shortcut.Save()
+}
+
+function Remove-IfExists {
+  param([string]$Path)
+  if (Test-Path $Path) {
+    Remove-Item -LiteralPath $Path -Force
+  }
+}
+
+# Only remove shortcuts that point into this install folder, so uninstalling one copy (or a test copy)
+# does not delete the shortcuts of another copy on the same machine.
+function Remove-OwnedShortcut {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) { return }
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut($Path)
+    $target = [string]$link.TargetPath
+  } catch {
+    return
+  }
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd("\") + "\"
+  if ($target -and $target.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    Remove-Item -LiteralPath $Path -Force
+  } else {
+    Write-Host "Keeping $Path (points to $target, not this install)."
+  }
+}
+
+function Get-ShortcutState {
+  $desktop = (Test-Path $DesktopShortcut) -or (Test-Path $LegacyDesktopShortcut)
+  $currentStartMenu = (Test-Path $StartMenuShortcut) -and (Test-Path $StartMenuStatusShortcut) -and (Test-Path $StartMenuStopShortcut)
+  $legacyStartMenu = (Test-Path $LegacyStartMenuShortcut) -and (Test-Path $LegacyStartMenuStatusShortcut) -and (Test-Path $LegacyStartMenuStopShortcut)
+  $startMenu = $currentStartMenu -or $legacyStartMenu
+  return [ordered]@{
+    desktopShortcut = $DesktopShortcut
+    desktopInstalled = $desktop
+    startMenuDir = $StartMenuDir
+    startMenuInstalled = $startMenu
+    installed = ($desktop -and $startMenu)
+  }
+}
+
+switch ($Command) {
+  "install" {
+    Remove-IfExists -Path $LegacyDesktopShortcut
+    Remove-IfExists -Path $LegacyStartMenuShortcut
+    Remove-IfExists -Path $LegacyStartMenuStatusShortcut
+    Remove-IfExists -Path $LegacyStartMenuStopShortcut
+    if ((Test-Path $LegacyStartMenuDir) -and -not (Get-ChildItem -LiteralPath $LegacyStartMenuDir -Force -ErrorAction SilentlyContinue)) {
+      Remove-Item -LiteralPath $LegacyStartMenuDir -Force
+    }
+    New-AgentHubShortcut -ShortcutPath $DesktopShortcut -TargetPath $StartScript -Description "Open Xgent Hub" -IconLocation $AppIcon
+    New-AgentHubShortcut -ShortcutPath $StartMenuShortcut -TargetPath $StartScript -Description "Open Xgent Hub" -IconLocation $AppIcon
+    New-AgentHubShortcut -ShortcutPath $StartMenuStatusShortcut -TargetPath $ServiceScript -Arguments "status --pause" -Description "Check Xgent Hub status" -IconLocation $StatusIcon
+    New-AgentHubShortcut -ShortcutPath $StartMenuStopShortcut -TargetPath $ServiceScript -Arguments "stop --pause" -Description "Stop Xgent Hub" -IconLocation $StopIcon
+    Write-Host "Xgent Hub shortcuts installed."
+  }
+  "remove" {
+    Remove-OwnedShortcut -Path $DesktopShortcut
+    Remove-OwnedShortcut -Path $LegacyDesktopShortcut
+    Remove-OwnedShortcut -Path $StartMenuShortcut
+    Remove-OwnedShortcut -Path $StartMenuStatusShortcut
+    Remove-OwnedShortcut -Path $StartMenuStopShortcut
+    Remove-OwnedShortcut -Path $LegacyStartMenuShortcut
+    Remove-OwnedShortcut -Path $LegacyStartMenuStatusShortcut
+    Remove-OwnedShortcut -Path $LegacyStartMenuStopShortcut
+    if ((Test-Path $StartMenuDir) -and -not (Get-ChildItem -LiteralPath $StartMenuDir -Force -ErrorAction SilentlyContinue)) {
+      Remove-Item -LiteralPath $StartMenuDir -Force
+    }
+    if ((Test-Path $LegacyStartMenuDir) -and -not (Get-ChildItem -LiteralPath $LegacyStartMenuDir -Force -ErrorAction SilentlyContinue)) {
+      Remove-Item -LiteralPath $LegacyStartMenuDir -Force
+    }
+    Write-Host "Xgent Hub shortcuts removed."
+  }
+}
+
+Get-ShortcutState | ConvertTo-Json -Depth 5

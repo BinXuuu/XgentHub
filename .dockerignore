@@ -1,0 +1,20 @@
+# 构建镜像时不带进去的东西：本机数据、配置、依赖、构建产物、日志备份、开发资料
+node_modules
+**/node_modules
+web/dist
+server/data
+.env
+.env.*
+!.env.example
+logs
+backups
+.git
+.github
+docs
+installer
+XgentHub-opensource
+xgent-data
+workspaces
+*.log
+项目进度.txt
+design-qa*

@@ -1,0 +1,217 @@
+/* Shared UI rules. Theme colors live here; page-specific repairs stay out of global.css. */
+:root {
+  --ui-page: #0d131d;
+  --ui-panel: #141d2a;
+  --ui-muted: #101925;
+  --ui-line: #29374a;
+  --ui-ink: #e6edf7;
+  --ui-secondary: #a5b4c9;
+  --ui-selected: #1a3150;
+  --ui-shadow: 0 2px 8px rgb(0 0 0 / 9%);
+  --ui-sans: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+:root[data-theme="light"] {
+  --ui-page: #f5f7fb;
+  --ui-panel: #fff;
+  --ui-muted: #f8fafd;
+  --ui-line: #e1e7f0;
+  --ui-ink: #182438;
+  --ui-secondary: #617087;
+  --ui-selected: #edf4ff;
+  --ui-shadow: 0 2px 8px rgb(25 45 75 / 3%);
+}
+body { font-family: var(--ui-sans); font-size: 14px; }
+button, input, select, textarea { font-family: inherit; }
+.view-container, .main-area, .detail-pane, .agent-config-content { min-width: 0; min-height: 0; }
+html .btn { border-radius: 8px; font-size: 13px; font-weight: 500; box-shadow: none; white-space: nowrap; }
+html .btn-primary { box-shadow: 0 2px 5px rgb(30 103 239 / 12%); }
+html .btn-sm { min-height: 29px; }
+html .field { font-size: 14px; min-width: 0; border-radius: 8px; }
+html textarea.field { line-height: 1.75; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+html .dashboard-kicker, html .workspace-detail-kicker { font-size: 12px; font-weight: 600; color: var(--accent); }
+html .config-field-help, html .config-field-help code, html .resource-card-sub,
+html .task-date-label, html .task-row .sub, html .config-field-help,
+html .workspace-section-head span { font-size: 12px; line-height: 1.65; }
+
+/* Navigation scrolls independently; theme and version remain reachable. */
+html .nav-rail { height: 100%; max-height: 100dvh; min-height: 0; gap: 10px; padding: 10px 6px; }
+.nav-rail-brand { flex-shrink: 0; }
+.nav-rail-links { display: flex; flex-direction: column; align-items: center; flex: 1; min-height: 0; width: 100%; gap: 3px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.nav-rail-links::-webkit-scrollbar { display: none; }
+html .nav-rail-item { min-height: 50px; flex-shrink: 0; border-radius: 10px; gap: 3px; padding: 4px 2px; }
+html .nav-rail-item .nav-icon { height: 22px; }
+html .nav-label { font-size: 12px; line-height: 1.25; }
+.nav-rail-footer { display: flex; flex-direction: column; align-items: center; gap: 5px; flex-shrink: 0; width: 100%; border-top: 1px solid var(--ui-line); padding-top: 6px; }
+html .nav-rail-theme-toggle { margin-top: 0; min-height: 48px; flex-shrink: 0; }
+html .nav-rail-version { font-size: 11px; margin: 0; }
+
+/* Common page hierarchy and surfaces, for both themes. */
+html .dashboard, html .resource-center, html .workspace-detail { padding: 22px; background: var(--ui-page); }
+html .resource-hero, html .dashboard-hero, html .workspace-detail-header {
+  padding: 20px 22px; border: 1px solid var(--ui-line); border-radius: 12px;
+  background: var(--ui-panel); box-shadow: var(--ui-shadow); color: var(--ui-ink);
+}
+html .resource-hero h1, html .dashboard-hero h1, html .workspace-detail-header h2 { font-size: 24px; line-height: 1.35; letter-spacing: -.5px; margin: 4px 0 6px; }
+html .resource-hero p, html .dashboard-hero p { font-size: 13px; line-height: 1.7; max-width: 780px; color: var(--ui-secondary); }
+html .resource-panel, html .workspace-detail-section, html .workspace-meta-card,
+html .stat-card, html .quota-card, html .knowledge-card {
+  border-radius: 10px; border-color: var(--ui-line); box-shadow: var(--ui-shadow);
+}
+html .resource-panel h3, html .workspace-detail-section h3 { font-size: 15px; }
+html .knowledge-card-head { gap: 10px; }
+html .knowledge-card-head strong { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+html .knowledge-card p { font-size: 13px; line-height: 1.75; }
+html .resource-command { line-height: 1.6; overflow-wrap: anywhere; }
+html .library-card-summary { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+/* Keep actionable tasks in the dashboard's first screen. */
+html .dashboard { display: flex; flex-direction: column; gap: 20px; }
+html .dashboard .stat-cards { gap: 12px; }
+html .stat-card { padding: 14px 16px; min-height: 85px; }
+html .stat-card-value { font-size: 28px; }
+html .stat-card.running .stat-card-value { color: var(--accent); }
+html .stat-card.approval .stat-card-value { color: var(--warning); }
+html .stat-card.review .stat-card-value { color: var(--success); }
+html .triage-card { padding: 12px 14px; border-radius: 9px; }
+.dashboard-quota-disclosure { border: 1px solid var(--ui-line); border-radius: 10px; background: var(--ui-panel); padding: 14px 16px; }
+.dashboard-quota-disclosure > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.dashboard-quota-disclosure > summary span { font-weight: 400; font-size: 12px; color: var(--ui-secondary); margin-left: 12px; }
+.dashboard-quota-disclosure > section { margin-top: 16px; }
+
+/* Resource forms are opened explicitly instead of permanently occupying a column. */
+.resource-center [hidden] { display: none; }
+.resource-center[data-editor-open="false"][data-mode="mcp"] .resource-grid,
+.resource-center[data-editor-open="false"][data-mode="tools"] .resource-grid { grid-template-columns: minmax(0, 1fr); }
+.resource-center[data-mode="knowledge"] .resource-grid { grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); align-items: start; }
+.resource-center[data-editor-open="true"][data-mode="knowledge"] .resource-grid { grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
+.resource-center[data-mode="tools"] .resource-list-panel > .knowledge-list,
+.resource-center[data-mode="mcp"] .resource-list-panel > .knowledge-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; align-items: start; }
+.resource-center .knowledge-card { margin: 0; padding: 16px; }
+.resource-center .resource-hero > .btn { flex-shrink: 0; }
+.resource-library-grid { display: grid; grid-template-columns: minmax(210px, 250px) minmax(0, 1fr); gap: 22px; align-items: start; }
+.resource-category-panel { min-width: 0; padding-right: 18px; border-right: 1px solid var(--ui-line); }
+.resource-category-nav { display: grid; gap: 5px; }
+.resource-category-nav > button, .resource-category-row > button:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; flex: 1; text-align: left; border: 1px solid transparent; border-radius: 8px; padding: 10px; background: transparent; color: var(--ui-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.resource-category-nav button.active { background: var(--ui-selected); color: var(--accent); border-color: var(--ui-line); font-weight: 600; }
+.resource-category-nav button:hover { background: var(--ui-selected); }
+.resource-category-nav button > span { font-size: 12px; font-weight: 400; }
+.resource-category-row { display: flex; flex-wrap: wrap; min-width: 0; }
+.resource-category-row > button:first-child { flex-basis: 100%; }
+.resource-category-create { display: grid; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--ui-line); }
+.resource-category-content { display: grid; gap: 14px; min-width: 0; }
+.resource-category-content > .knowledge-list { display: grid; gap: 10px; }
+.catalog-destination-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; margin-bottom: 14px; }
+.catalog-destination-grid label { display: grid; gap: 6px; }
+html .skill-library { gap: 12px; margin-top: 16px; }
+html .skill-library-topbar { gap: 8px; }
+html .skill-library > .config-field-help { margin: 0; }
+html .skill-library-grid { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 16px; }
+html .skill-library .resource-panel { margin-top: 0; }
+html .skill-library .store-account-bar { margin: 0; }
+html .skill-group-nav > button, html .skill-group-nav-row > button:first-child { padding: 8px; }
+
+/* Task filters and detail tools no longer compete on one horizontally scrolling row. */
+html .filter-tabs { flex-wrap: wrap; overflow: visible; gap: 6px; padding: 10px 12px; }
+html .filter-tab { font-size: 12px; flex: 0 0 auto; padding: 5px 9px; }
+html .task-list-pane .task-row { padding: 12px; }
+html .detail-header { padding: 18px 22px 16px; }
+html .detail-header .title-row h2 { font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
+html .detail-header .meta-row { gap: 7px; margin-top: 12px; flex-wrap: wrap; }
+html .detail-pane > .tabs { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0 16px; flex-shrink: 0; }
+html .detail-pane > .tabs > .tab-strip { display: flex; flex-wrap: wrap; align-items: center; overflow: visible; gap: 4px; min-width: 0; }
+html .detail-pane .tab-btn { margin-top: 4px; min-height: 38px; font-size: 13px; padding: 8px 10px; }
+html .detail-pane .tab-group-select { width: auto; max-width: 190px; min-height: 30px; font-size: 12px; padding: 4px 24px 4px 8px; margin: 4px 0; }
+/* 当前看的是「更多视图」里的页面：下拉框像选中的标签一样高亮；有待审批时用提醒色 */
+html .detail-pane .tab-group-select.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+html .detail-pane .tab-group-select.attention:not(.active) { border-color: var(--warning); color: var(--warning); }
+/* 标签的焦点框画在标签里面：画在外面会和下面的蓝色下划线叠成一个大框（截图里「审批」那样） */
+html .detail-pane .tab-btn:focus-visible { outline-offset: -3px; border-radius: 8px; }
+html .detail-pane .tab-btn .badge.badge-quiet { background: transparent; color: var(--text-faint); font-weight: 500; padding: 0 0 0 2px; }
+html .detail-pane > .tabs > .tab-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 7px 0; border-top: 1px solid var(--ui-line); }
+html .detail-pane > .tabs > .tab-actions:empty { display: none; }
+html .detail-pane .tab-content { min-width: 0; }
+html .composer-actions-left, html .composer-actions-right { flex-shrink: 0; }
+html .composer-actions-left button, html .composer-actions-right button { flex-shrink: 0; white-space: nowrap; }
+.page-load-warning { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 16px; background: var(--ui-selected); color: var(--ui-ink); border-bottom: 1px solid var(--ui-line); font-size: 13px; }
+
+/* Detail forms follow their available column width rather than the window width. */
+html .agent-config-content { container-type: inline-size; }
+html .role-top-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+html .role-top-grid > *, html .config-form, html .config-field, html .config-section { min-width: 0; }
+html .config-field .field { width: 100%; max-width: 100%; }
+html .config-section-head p, html .config-section-head span { overflow-wrap: anywhere; }
+html .role-actions { position: sticky; bottom: 0; padding: 14px 0; background: var(--ui-page); border-top: 1px solid var(--ui-line); z-index: 2; }
+html .workspace-detail { container-type: inline-size; }
+html .workspace-linkage-section { grid-template-columns: minmax(0, 1fr) auto; }
+html .workspace-linkage-section .workspace-section-head { grid-column: 1 / -1; }
+html .workspace-linkage-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html .workspace-linkage-list > div { padding: 12px; }
+html .workspace-linkage-list span { line-height: 1.65; }
+@container (max-width: 760px) {
+  html .role-top-grid { grid-template-columns: minmax(0, 1fr); }
+  html .workspace-detail-grid { grid-template-columns: minmax(0, 1fr); }
+  html .workspace-linkage-section { grid-template-columns: minmax(0, 1fr); }
+  html .workspace-linkage-section > .btn { justify-self: start; }
+}
+
+/* Consistent forms, modal actions and readable compact states. */
+html .modal-card { max-width: min(680px, calc(100vw - 32px)); border-radius: 14px; padding: 22px; }
+html .modal-card h2 { font-size: 20px; margin-top: 0; }
+html .modal-overlay:has(.modal-card[aria-modal="true"]) { display: flex; align-items: center; justify-content: center; padding: 20px; overflow: hidden; }
+html .modal-card[aria-modal="true"] { max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; }
+html .modal-card .modal-actions { position: sticky; bottom: -22px; padding: 14px 0; margin-bottom: -22px; background: var(--ui-panel); border-top: 1px solid var(--ui-line); z-index: 2; }
+html .update-center .update-meta { margin: 14px 0; line-height: 1.7; overflow-wrap: anywhere; }
+html .modal-card .agent-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html .agent-card { min-width: 0; text-align: left; font: inherit; background: var(--ui-panel); color: var(--ui-ink); }
+html .agent-card .agent-name { display: flex; flex-wrap: wrap; gap: 5px; }
+html .agent-card .agent-name > span:first-child { flex: 1 0 100%; }
+html .agent-card .agent-desc { font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.agent-picker-search { margin: 8px 0; }
+.agent-picker-note { color: var(--ui-secondary); font-size: 12px; margin: 8px 0; }
+html .bottom-nav-theme { position: sticky; right: 0; background: var(--ui-panel); border-left: 1px solid var(--ui-line); box-shadow: -4px 0 8px rgb(0 0 0 / 5%); }
+
+@media (min-width: 761px) {
+  /* Keep the shell on one breakpoint. Legacy <=1023 rules hid the rail while
+     later theme rules kept its 68px grid track, squeezing the page into it. */
+  html .app-body { display: grid; grid-template-columns: 68px minmax(0, 1fr); padding-bottom: 0; }
+  html .nav-rail { display: flex; grid-column: 1; grid-row: 1; }
+  html .view-container { display: flex; height: 100%; overflow: hidden; }
+  html .app-body > .view-container { grid-column: 2; grid-row: 1; }
+  html .view-container .main-area { min-height: 0; overflow: hidden; }
+  html .view-container .secondary-sidebar { max-height: none; border-bottom: 0; border-right: 1px solid var(--border-soft); }
+  html .bottom-nav { display: none; }
+  html .view-container > .secondary-sidebar { width: clamp(280px, 23vw, 320px); min-width: 280px; flex: 0 0 clamp(280px, 23vw, 320px); }
+}
+@media (max-width: 1100px) {
+  .resource-center[data-mode="knowledge"] .resource-grid,
+  .resource-center[data-editor-open="true"] .resource-grid { grid-template-columns: minmax(0, 1fr); }
+  html .skill-library-grid { grid-template-columns: minmax(0, 1fr); }
+  html .skill-group-nav { max-height: 230px; overflow-y: auto; }
+  .resource-center[data-editor-open="true"] .resource-library-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  html .dashboard .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  html .dashboard .stat-card { min-height: 76px; }
+  html .dashboard .stat-card:last-child { grid-column: 1 / -1; }
+  html .bottom-nav { display: flex; overflow: visible; gap: 4px; }
+  .bottom-nav-links { display: grid; grid-auto-flow: column; grid-auto-columns: 60px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .bottom-nav-links::-webkit-scrollbar { display: none; }
+  html .bottom-nav .bottom-nav-theme { position: static; flex: 0 0 50px; min-width: 50px; }
+  html .dashboard, html .resource-center, html .workspace-detail { padding: 12px; }
+  html .resource-hero, html .dashboard-hero, html .workspace-detail-header { flex-wrap: wrap; padding: 16px; gap: 12px; }
+  html .resource-hero h1, html .dashboard-hero h1 { font-size: 22px; }
+  html .detail-header { padding: 14px; }
+  html .detail-pane > .tabs { padding: 0 10px; }
+  html .resource-toolbar { flex-wrap: wrap; }
+  html .workspace-meta-grid { grid-template-columns: minmax(0, 1fr); }
+  html .workspace-linkage-list { grid-template-columns: minmax(0, 1fr); }
+  html .skill-library-topbar > div { min-width: 100%; }
+  html .knowledge-form-row { flex-wrap: wrap; }
+  .resource-library-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .resource-category-panel { border-right: 0; padding-right: 0; padding-bottom: 16px; border-bottom: 1px solid var(--ui-line); }
+  html .modal-card { padding: 18px; max-width: calc(100vw - 20px); }
+  html .modal-card .modal-actions { bottom: -18px; margin-bottom: -18px; }
+  html .modal-card .agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-quota-disclosure > summary span { display: block; margin: 6px 0 0; }
+}
